@@ -1,0 +1,62 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type check / lint caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.*
+
+# App outputs
+chat_history.json
+
+# Model files (keep metadata/code, ignore heavy binaries)
+/models/*.gguf
+/models/*.ggml
+/models/*.bin
+/models/*.safetensors
+/models/*.pt
+/models/*.pth
+/models/*.onnx
+/models/*.tflite
+/models/*.zip
+/models/*.7z
+/models/*.tar
+/models/*.tar.gz
+/models/*.tgz
+/models/*.gz
+/models/*.xz
+/models/*.zst
