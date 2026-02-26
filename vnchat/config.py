@@ -155,7 +155,7 @@ def parse_cli_args() -> CliArgs:
     )
     parser.add_argument(
         "--model-path",
-        default="models/umiyuki-Umievo-itr012-Gleipnir-7B-Q6_K.gguf",
+        default="models/Llama-3-ELYZA-JP-8B-q4_k_m.gguf",
         help="cudaモードで使うGGUFモデルパス",
     )
     parser.add_argument(

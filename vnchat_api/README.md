@@ -27,6 +27,7 @@
 ./vnchat_api/run_llama_server.ps1 \
   -ServerBinary ".\bin\llama-server.exe" \
   -ModelPath ".\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf" \
+  -BindHost 127.0.0.1 \
   -ContextSize 8192 \
   -GpuLayers -1 \
   -Port 8080
@@ -35,6 +36,7 @@
 > 補足
 > - `-GpuLayers -1` は「可能な限り GPU に載せる」設定
 > - うまく載らない場合は `-GpuLayers 20` などへ下げて試す
+> - PowerShell の自動変数 `$Host` と衝突するため、ホスト指定は `-Host` ではなく `-BindHost` を使う
 
 ### 2. API 経由チャットを開始
 

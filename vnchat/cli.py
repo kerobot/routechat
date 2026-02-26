@@ -38,10 +38,10 @@ def main() -> None:
     else:
         print_llama_server_startup_diagnostics(server_url=app_config.api_server_url)
 
-    name_raw = safe_input("あなたの名前を入力してね (空=あなた): ")
+    name_raw = safe_input("あなたの名前は？ (空=あなた): ")
     if name_raw is None:
         print(
-            f"\n{Fore.YELLOW}[システム] 入力が中断されたので終了するね{Style.RESET_ALL}"
+            f"\n{Fore.YELLOW}[システム] 入力が中断されたので終了します{Style.RESET_ALL}"
         )
         return
 
@@ -50,7 +50,7 @@ def main() -> None:
     if app_config.backend_mode == "cuda" and not os.path.exists(app_config.model_path):
         print(f"{Fore.RED}エラー: モデルファイルが見つかりません{Style.RESET_ALL}")
         print(f"パス: {app_config.model_path}")
-        print("\nモデルファイル(.gguf)のパスを --model-path で指定して。")
+        print("\nモデルファイル(.gguf)のパスを --model-path で指定してください。")
         print("\n推奨モデル:")
         print("  - Llama 3.1 8B Instruct (Q5_K_M以上)")
         print("  - Llama 3.2 3B Instruct")

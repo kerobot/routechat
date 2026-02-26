@@ -32,7 +32,7 @@
 ### 1) 仮想環境の作成/有効化
 
 ```powershell
-python -m venv venv
+py -3.13.12 -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 

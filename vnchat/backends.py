@@ -13,7 +13,7 @@ from vnchat.http_client import get_json_safe, request_json
 
 LlamaCpp: Any = None
 try:
-    from llama_cpp import Llama as _LlamaCpp
+    from llama_cpp import Llama as _LlamaCpp  # type: ignore
 
     LlamaCpp = _LlamaCpp
 except Exception:
@@ -70,11 +70,11 @@ def print_llama_cpp_startup_diagnostics(n_gpu_layers: int) -> None:
 
         if supports is False:
             print(
-                f"{Fore.YELLOW}  -> GPUオフロード非対応のビルドっぽい（CPUのみの可能性高い）{Style.RESET_ALL}"
+                f"{Fore.YELLOW}  -> GPUオフロード非対応ビルド（CPUのみの可能性が高い）{Style.RESET_ALL}"
             )
         elif supports is True:
             print(
-                f"{Fore.GREEN}  -> GPUオフロード対応ビルド（ただし実際にGPUへ載るかはVRAMと設定次第）{Style.RESET_ALL}"
+                f"{Fore.GREEN}  -> GPUオフロード対応ビルド（実際にGPUへ載るかはVRAMと設定次第）{Style.RESET_ALL}"
             )
     except Exception as e:
         print(f"{Fore.YELLOW}  診断に失敗: {type(e).__name__}: {e}{Style.RESET_ALL}")
@@ -95,7 +95,7 @@ def print_llama_server_startup_diagnostics(server_url: str) -> None:
 
     if not health_ok:
         print(
-            f"{Fore.YELLOW}  -> API疎通できない。llama-server起動状態/URLを確認して{Style.RESET_ALL}"
+            f"{Fore.YELLOW}  -> API疎通できない。llama-server起動状態/URLを確認してください{Style.RESET_ALL}"
         )
         return
 
@@ -127,7 +127,7 @@ def print_llama_server_startup_diagnostics(server_url: str) -> None:
     if tiny and isinstance(tiny.get("content"), str):
         print("  completion: OK")
         print(
-            f"{Fore.GREEN}  -> API推論まで通過。GPU offloadの最終判定はサーバーログの ggml_backend_* 出力も確認して{Style.RESET_ALL}"
+            f"{Fore.GREEN}  -> API推論まで通過。GPU offloadの最終判定はサーバーログの ggml_backend_* 出力も確認してください{Style.RESET_ALL}"
         )
     else:
         print("  completion: NG（推論レスポンス取得失敗）")

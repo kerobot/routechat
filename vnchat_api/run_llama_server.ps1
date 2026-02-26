@@ -9,7 +9,7 @@ param(
     [int]$ContextSize = 8192,
     [int]$GpuLayers = -1,
     [int]$Threads = 0,
-    [string]$Host = "127.0.0.1"
+    [string]$BindHost = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,7 +24,7 @@ if (-not (Test-Path $ModelPath)) {
 
 $arguments = @(
     "-m", $ModelPath,
-    "--host", $Host,
+    "--host", $BindHost,
     "--port", $Port,
     "-c", $ContextSize,
     "--n-gpu-layers", $GpuLayers
@@ -37,7 +37,7 @@ if ($Threads -gt 0) {
 Write-Host "[INFO] llama-server を起動します" -ForegroundColor Cyan
 Write-Host "  binary : $ServerBinary"
 Write-Host "  model  : $ModelPath"
-Write-Host "  host   : $Host"
+Write-Host "  host   : $BindHost"
 Write-Host "  port   : $Port"
 Write-Host "  ctx    : $ContextSize"
 Write-Host "  gpu    : $GpuLayers"

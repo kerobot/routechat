@@ -46,7 +46,7 @@ def build_command(args: argparse.Namespace) -> list[str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="ROCm/HIP 版 llama-server を起動して API 待受する"
+        description="ROCm/HIP 版 llama-server を起動して API 待受します。"
     )
     parser.add_argument("--server-binary", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
@@ -83,11 +83,13 @@ def main() -> None:
             print(f"[INFO] サーバー起動完了: {server_url}")
             print("[INFO] 停止するには Ctrl+C")
         else:
-            print("[WARN] ヘルスチェックがタイムアウトした。ログを確認して。")
+            print(
+                "[WARN] ヘルスチェックがタイムアウトしました。ログを確認してください。"
+            )
 
         process.wait()
     except KeyboardInterrupt:
-        print("\n[INFO] Ctrl+C を受信。llama-server を停止する。")
+        print("\n[INFO] Ctrl+C を受信。llama-server を停止します。")
         process.terminate()
         try:
             process.wait(timeout=10)
