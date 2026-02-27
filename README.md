@@ -34,6 +34,7 @@
 ```powershell
 py -3.13.12 -m venv venv
 .\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 ```
 
 ### 2) 依存関係のインストール
@@ -41,7 +42,6 @@ py -3.13.12 -m venv venv
 このプロジェクトは共通で `colorama` を利用し、`llama-cpp-python` は CUDAモード利用時のみ必要。
 
 ```powershell
-pip install -U pip
 pip install colorama
 
 # CUDAモード（--backend cuda）を使う場合のみ
