@@ -74,29 +74,16 @@ class VisualNovelChat:
         self.start_conversation()
 
         while True:
-            raw = safe_input(f"{Fore.GREEN}{self.user_name} > {Style.RESET_ALL}")
-            if raw is None:
-                print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
+            user_input = self._read_user_input()
+            if user_input is None:
                 break
-
-            user_input = raw.strip()
-            if not user_input:
+            if user_input == "":
                 continue
 
-            if user_input.lower() == "quit":
-                print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
-                save_raw = safe_input("会話履歴を保存しますか？ (y/n): ")
-                if (save_raw or "n").strip().lower() == "y":
-                    self.conversation.save_to_file(self.app_config.save_file)
+            command_action = self._handle_command(user_input)
+            if command_action == "break":
                 break
-            if user_input.lower() == "save":
-                self.conversation.save_to_file(self.app_config.save_file)
-                continue
-            if user_input.lower() == "state":
-                print(f"{Fore.YELLOW}[状態]{Style.RESET_ALL}")
-                print(self.conversation.character_state.to_string())
-                print(f"会話履歴数: {len(self.conversation.messages)}")
-                print(f"要約履歴数: {len(self.conversation.summary_history)}")
+            if command_action == "continue":
                 continue
 
             self.conversation.add_message("user", user_input)
@@ -104,10 +91,41 @@ class VisualNovelChat:
 
             self._print_vn_display(response)
             print(f"{Fore.WHITE}{'-'*60}{Style.RESET_ALL}")
+            self._finalize_turn(user_input=user_input, assistant_response=response)
 
-            self.conversation.add_message("assistant", response)
-            self.turn_count += 1
-            self._update_character_state(user_input)
+    def _read_user_input(self) -> str | None:
+        raw = safe_input(f"{Fore.GREEN}{self.user_name} > {Style.RESET_ALL}")
+        if raw is None:
+            print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
+            return None
+        return raw.strip()
+
+    def _handle_command(self, user_input: str) -> str:
+        cmd = user_input.lower()
+        if cmd == "quit":
+            print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
+            save_raw = safe_input("会話履歴を保存しますか？ (y/n): ")
+            if (save_raw or "n").strip().lower() == "y":
+                self.conversation.save_to_file(self.app_config.save_file)
+            return "break"
+
+        if cmd == "save":
+            self.conversation.save_to_file(self.app_config.save_file)
+            return "continue"
+
+        if cmd == "state":
+            print(f"{Fore.YELLOW}[状態]{Style.RESET_ALL}")
+            print(self.conversation.character_state.to_string())
+            print(f"会話履歴数: {len(self.conversation.messages)}")
+            print(f"要約履歴数: {len(self.conversation.summary_history)}")
+            return "continue"
+
+        return "none"
+
+    def _finalize_turn(self, user_input: str, assistant_response: str) -> None:
+        self.conversation.add_message("assistant", assistant_response)
+        self.turn_count += 1
+        self._update_character_state(user_input)
 
     def _generate_response(self) -> str:
         prompt = self._build_prompt_with_generation_budget(

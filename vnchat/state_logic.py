@@ -11,6 +11,20 @@ from vnchat.models import CharacterState, StateAnalysis
 
 
 class CharacterStateUpdater:
+    _POSITIVE_WORDS = (
+        "ありがとう",
+        "嬉しい",
+        "嬉しかった",
+        "助かる",
+        "助かった",
+        "助かりました",
+        "最高",
+        "大好き",
+        "素晴らしい",
+        "すごい",
+    )
+    _NEGATIVE_WORDS = ("ダメ", "辛い", "無理")
+
     def __init__(
         self,
         conversation: ConversationManager,
@@ -55,24 +69,23 @@ class CharacterStateUpdater:
         self._update_state_fallback(state=state, user_input=user_input)
 
     def _update_state_lightweight(self, state: CharacterState, user_input: str) -> None:
-        if any(
-            word in (user_input or "") for word in ["ありがとう", "嬉しい", "助かる"]
-        ):
+        if self._contains_any(user_input, self._POSITIVE_WORDS):
             state.affection = self._clamp(state.affection + 0.15, 0.0, 10.0)
             if state.mood not in ("苛立ち", "警戒"):
                 state.mood = "満更でもない"
             state.temperature = self._clamp(state.temperature + 0.02, 0.0, 1.0)
-        elif any(word in (user_input or "") for word in ["ダメ", "辛い", "無理"]):
+        elif self._contains_any(user_input, self._NEGATIVE_WORDS):
             if state.mood not in ("苛立ち", "警戒"):
                 state.mood = "心配"
             state.temperature = self._clamp(state.temperature + 0.02, 0.0, 1.0)
         else:
             state.temperature = self._clamp(state.temperature * 0.99, 0.0, 1.0)
 
-        self._apply_affection_drift(
-            state=state, mood=state.mood, affection_delta=None, user_input=user_input
+        self._finalize_state_update(
+            state=state,
+            affection_delta=None,
+            user_input=user_input,
         )
-        self._apply_affection_overrides(state)
 
     def _apply_analysis_result(
         self, state: CharacterState, analysis: StateAnalysis, user_input: str
@@ -94,54 +107,88 @@ class CharacterStateUpdater:
         confidence = analysis.get("confidence")
         conf_value = float(confidence) if isinstance(confidence, (int, float)) else None
 
-        if (
-            isinstance(proposed_mood, str)
-            and proposed_mood in self.profile.allowed_moods
-        ):
-            if (
-                proposed_mood in ("苛立ち", "警戒")
-                and conf_value is not None
-                and conf_value < 0.55
-            ):
-                pass
-            elif (
-                proposed_mood in ("好意的", "クーデレ")
-                and conf_value is not None
-                and conf_value < 0.35
-            ):
-                pass
-            else:
-                if proposed_mood == "クーデレ" and state.affection < (
-                    self.tuning.affection_kuudere_threshold - 0.30
-                ):
-                    state.mood = "好意的"
-                else:
-                    state.mood = proposed_mood
-
-        self._apply_affection_drift(
+        next_mood = self._resolve_proposed_mood(
             state=state,
-            mood=state.mood,
+            proposed_mood=proposed_mood,
+            conf_value=conf_value,
+        )
+        if next_mood is not None:
+            state.mood = next_mood
+
+        self._finalize_state_update(
+            state=state,
             affection_delta=affection_delta_value,
             user_input=user_input,
         )
-        self._apply_affection_overrides(state)
 
     def _update_state_fallback(self, state: CharacterState, user_input: str) -> None:
-        if any(word in user_input for word in ["ありがとう", "嬉しい", "助かる"]):
+        if self._contains_any(user_input, self._POSITIVE_WORDS):
             state.affection = min(10, state.affection + 0.5)
             state.mood = "満更でもない"
             state.temperature = self._clamp(state.temperature + 0.05, 0.0, 1.0)
-        elif any(word in user_input for word in ["ダメ", "辛い", "無理"]):
+        elif self._contains_any(user_input, self._NEGATIVE_WORDS):
             state.mood = "心配"
             state.temperature = self._clamp(state.temperature + 0.03, 0.0, 1.0)
         else:
             state.mood = "通常"
             state.temperature = self._clamp(state.temperature * 0.98, 0.0, 1.0)
 
+        self._finalize_state_update(
+            state=state,
+            affection_delta=None,
+            user_input=user_input,
+        )
+
+    @staticmethod
+    def _contains_any(text: str, words: tuple[str, ...]) -> bool:
+        return any(word in (text or "") for word in words)
+
+    def _finalize_state_update(
+        self,
+        state: CharacterState,
+        affection_delta: float | None,
+        user_input: str,
+    ) -> None:
         self._apply_affection_drift(
-            state=state, mood=state.mood, affection_delta=None, user_input=user_input
+            state=state,
+            mood=state.mood,
+            affection_delta=affection_delta,
+            user_input=user_input,
         )
         self._apply_affection_overrides(state)
+
+    def _resolve_proposed_mood(
+        self,
+        state: CharacterState,
+        proposed_mood: Any,
+        conf_value: float | None,
+    ) -> str | None:
+        if not (
+            isinstance(proposed_mood, str)
+            and proposed_mood in self.profile.allowed_moods
+        ):
+            return None
+
+        if (
+            proposed_mood in ("苛立ち", "警戒")
+            and conf_value is not None
+            and conf_value < 0.55
+        ):
+            return None
+
+        if (
+            proposed_mood in ("好意的", "クーデレ")
+            and conf_value is not None
+            and conf_value < 0.35
+        ):
+            return None
+
+        if proposed_mood == "クーデレ" and state.affection < (
+            self.tuning.affection_kuudere_threshold - 0.30
+        ):
+            return "好意的"
+
+        return proposed_mood
 
     def _apply_affection_drift(
         self,
@@ -159,9 +206,7 @@ class CharacterStateUpdater:
         elif mood in ("満更でもない", "安心", "興味"):
             bump += 0.06
 
-        if any(
-            word in (user_input or "") for word in ["ありがとう", "助かった", "嬉しい"]
-        ):
+        if self._contains_any(user_input, self._POSITIVE_WORDS):
             bump += 0.08
 
         if bump > 0.0:

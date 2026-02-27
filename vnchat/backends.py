@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""バックエンド実装の共通アダプタ。
+
+このモジュールは、ローカル `llama-cpp-python`（CUDA）と
+HTTP の `llama-server`（API）の2系統を同じ呼び出し形にそろえる。
+起動時診断、HTTP補助、トークナイズ、推論呼び出しをまとめて提供する。
+"""
+
 import sys
 import urllib.error
 import urllib.request
@@ -21,12 +28,14 @@ except Exception:
 
 
 def _http_get_json(url: str, timeout_sec: float = 5.0) -> dict[str, Any] | None:
+    """GETでJSONを取得する補助関数。失敗時は `None` を返す。"""
     return get_json_safe(url=url, timeout_sec=timeout_sec)
 
 
 def _http_post_json(
     url: str, payload: dict[str, Any], timeout_sec: float = 15.0
 ) -> dict[str, Any] | None:
+    """POSTでJSONを送受信する補助関数。失敗時は HTTPエラーを表示して `None` を返す。"""
     try:
         return request_json(
             url=url,
@@ -42,6 +51,7 @@ def _http_post_json(
 
 
 def print_llama_cpp_startup_diagnostics(n_gpu_layers: int) -> None:
+    """`llama-cpp-python` 利用時の環境情報とGPUオフロード対応状況を表示する。"""
     print(f"{Fore.YELLOW}[システム] llama-cpp-python 診断:{Style.RESET_ALL}")
     print(f"  python: {sys.version.split()[0]} ({sys.platform})")
     print(f"  n_gpu_layers(要求): {n_gpu_layers}")
@@ -81,6 +91,7 @@ def print_llama_cpp_startup_diagnostics(n_gpu_layers: int) -> None:
 
 
 def print_llama_server_startup_diagnostics(server_url: str) -> None:
+    """`llama-server` API への疎通と最小推論の可否を診断して表示する。"""
     base = server_url.rstrip("/")
     print(f"{Fore.YELLOW}[システム] llama-server(API) 診断:{Style.RESET_ALL}")
     print(f"  python: {sys.version.split()[0]} ({sys.platform})")
@@ -95,7 +106,7 @@ def print_llama_server_startup_diagnostics(server_url: str) -> None:
 
     if not health_ok:
         print(
-            f"{Fore.YELLOW}  -> API疎通できない。llama-server起動状態/URLを確認してください{Style.RESET_ALL}"
+            f"{Fore.YELLOW}  -> API疎通できません。llama-server起動状態/URLを確認してください{Style.RESET_ALL}"
         )
         return
 
@@ -134,6 +145,8 @@ def print_llama_server_startup_diagnostics(server_url: str) -> None:
 
 
 class LLMBackendAdapter:
+    """CUDA/API どちらの推論バックエンドにも同一インターフェースを提供する。"""
+
     def __init__(
         self,
         backend_mode: Literal["cuda", "api"],
@@ -143,6 +156,7 @@ class LLMBackendAdapter:
         server_url: str,
         api_timeout_sec: float,
     ):
+        """バックエンド設定を保持し、CUDAモード時はモデルを初期化する。"""
         self.backend_mode = backend_mode
         self._n_ctx = n_ctx
         self.server_url = server_url.rstrip("/")
@@ -161,6 +175,7 @@ class LLMBackendAdapter:
             )
 
     def n_ctx(self) -> int:
+        """利用中バックエンドのコンテキスト長を返す（取得不可時は設定値）。"""
         if self.backend_mode == "cuda" and self._llm is not None:
             try:
                 return int(self._llm.n_ctx())
@@ -169,6 +184,7 @@ class LLMBackendAdapter:
         return self._n_ctx
 
     def tokenize(self, b: bytes) -> list[int]:
+        """入力バイト列をトークン化する。APIモードでは概算トークン数を返す。"""
         if self.backend_mode == "cuda" and self._llm is not None:
             try:
                 return cast(list[int], self._llm.tokenize(b))
@@ -190,6 +206,7 @@ class LLMBackendAdapter:
         stop: list[str] | None = None,
         stream: bool = False,
     ) -> dict[str, Any]:
+        """推論を実行し、`{"choices": [{"text": ...}]}` 形式で結果を返す。"""
         if self.backend_mode == "cuda":
             if self._llm is None:
                 raise RuntimeError(
