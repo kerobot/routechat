@@ -1,3 +1,8 @@
+"""表示（プレゼンテーション）層。
+
+LLMの出力を、ビジュアルノベルっぽく読みやすい形に整形して端末に表示する。
+"""
+
 from __future__ import annotations
 
 import re
@@ -6,10 +11,23 @@ from colorama import Fore, Style
 
 
 class VNDisplayRenderer:
+    """ビジュアルノベル風にテキストを色分けしながら表示するレンダラ。"""
+
     def __init__(self, user_name: str) -> None:
+        """レンダラを初期化する。
+
+        Args:
+            user_name (str): ユーザー名（会話ログの発話者判定に使う）。
+        """
         self.user_name = user_name
 
     def print_vn_display(self, text: str) -> None:
+        """テキストをノベル風に整形して表示する。
+
+        - 地の文（情景描写）とセリフを色分け
+        - 混在している行は分割して読みやすくする
+        - 不要な見出しマーカーは表示前に除去
+        """
         normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
         # 不要なマーカーを削除

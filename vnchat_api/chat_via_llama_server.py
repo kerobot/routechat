@@ -1,3 +1,8 @@
+"""llama-serverのHTTP APIを使って簡易チャットするサンプル。
+
+OpenAI互換の `/v1/chat/completions` を優先し、未対応の場合は `/completion` にフォールバックする。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +14,8 @@ from vnchat.http_client import request_json
 
 @dataclass
 class ChatConfig:
+    """簡易チャット用の接続・生成パラメータ。"""
+
     server_url: str
     model: str = ""
     temperature: float = 0.7
@@ -18,6 +25,7 @@ class ChatConfig:
 
 
 def _post_json(url: str, payload: dict, timeout_sec: float) -> dict:
+    """JSONをPOSTしてJSONを受け取る薄いラッパ。"""
     return request_json(
         url=url,
         timeout_sec=timeout_sec,
@@ -29,6 +37,7 @@ def _post_json(url: str, payload: dict, timeout_sec: float) -> dict:
 def chat_completion_openai(
     config: ChatConfig, system_prompt: str, user_text: str
 ) -> str | None:
+    """OpenAI互換エンドポイントでチャット補完を試みる。"""
     url = f"{config.server_url.rstrip('/')}/v1/chat/completions"
     payload = {
         "model": config.model or "local-model",
@@ -61,6 +70,7 @@ def chat_completion_openai(
 
 
 def completion_fallback(config: ChatConfig, prompt: str) -> str | None:
+    """`/completion` エンドポイントでのフォールバック推論。"""
     url = f"{config.server_url.rstrip('/')}/completion"
     payload = {
         "prompt": prompt,
@@ -81,6 +91,7 @@ def completion_fallback(config: ChatConfig, prompt: str) -> str | None:
 
 
 def run_chat(config: ChatConfig) -> None:
+    """標準入力で対話し、サーバーから応答を表示する。"""
     system_prompt = "あなたは有能な会話アシスタント。日本語で簡潔かつ自然に返答する。"
 
     print("[INFO] llama-server API チャットを開始")
@@ -113,6 +124,7 @@ def run_chat(config: ChatConfig) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """CLI引数を解析する。"""
     parser = argparse.ArgumentParser(description="llama-server API 経由チャット")
     parser.add_argument("--server-url", default="http://127.0.0.1:8080")
     parser.add_argument("--model", default="")
@@ -124,6 +136,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """引数を読み取り、簡易チャットを開始する。"""
     args = parse_args()
     config = ChatConfig(
         server_url=args.server_url,

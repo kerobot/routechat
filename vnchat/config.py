@@ -1,3 +1,11 @@
+"""アプリ設定・チューニング設定・CLI引数を管理するモジュール。
+
+このモジュールは以下を提供する。
+- CLI引数のパース
+- GPU別プロファイル（推奨バックエンドやn_ctxなど）の定義
+- 実行時チューニング（生成/要約/状態分析など）の設定
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +24,8 @@ GpuProfileName = Literal[
 
 @dataclass(frozen=True)
 class RuntimeTuning:
+    """会話生成・要約・状態評価のチューニング値をまとめた設定。"""
+
     max_history: int = 20
     summary_threshold: int = 15
     max_summaries_in_context: int = 4
@@ -51,6 +61,8 @@ class RuntimeTuning:
 
 @dataclass(frozen=True)
 class AppConfig:
+    """起動時に確定するアプリ全体の設定（バックエンド/モデル/保存先など）。"""
+
     backend_mode: BackendMode
     model_path: str
     n_gpu_layers: int
@@ -62,6 +74,8 @@ class AppConfig:
 
 @dataclass(frozen=True)
 class CliArgs:
+    """CLIから受け取った引数の保持用データクラス。"""
+
     backend: BackendMode
     gpu_profile: GpuProfileName
     model_path: str
@@ -73,6 +87,8 @@ class CliArgs:
 
 @dataclass(frozen=True)
 class GpuProfile:
+    """GPU（または実行環境）ごとの推奨パラメータセット。"""
+
     name: GpuProfileName
     recommended_backend: BackendMode
     n_ctx: int
@@ -133,6 +149,7 @@ GPU_PROFILES: dict[GpuProfileName, GpuProfile] = {
 
 
 def parse_cli_args() -> CliArgs:
+    """CLI引数を解析して `CliArgs` として返す。"""
     parser = argparse.ArgumentParser(
         description="ビジュアルノベル風チャット（cuda local / rocm api 切替対応）"
     )
@@ -190,6 +207,7 @@ def parse_cli_args() -> CliArgs:
 
 
 def to_app_config(args: CliArgs) -> AppConfig:
+    """CLI引数とGPUプロファイルから `AppConfig` を組み立てる。"""
     profile = GPU_PROFILES[args.gpu_profile]
     n_ctx = profile.n_ctx if args.gpu_profile != "none" else args.n_ctx
     n_gpu_layers = (
@@ -207,6 +225,7 @@ def to_app_config(args: CliArgs) -> AppConfig:
 
 
 def get_runtime_tuning(args: CliArgs) -> RuntimeTuning:
+    """CLI引数に応じた実行時チューニング設定を返す。"""
     profile = GPU_PROFILES[args.gpu_profile]
     if args.gpu_profile == "none":
         return RuntimeTuning()
@@ -214,4 +233,5 @@ def get_runtime_tuning(args: CliArgs) -> RuntimeTuning:
 
 
 def get_profile(args: CliArgs) -> GpuProfile:
+    """選択されたGPUプロファイル定義を返す。"""
     return GPU_PROFILES[args.gpu_profile]

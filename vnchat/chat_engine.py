@@ -1,3 +1,5 @@
+"""チャットアプリの中核ロジック（入力→生成→表示→状態更新）を担うモジュール。"""
+
 from __future__ import annotations
 
 from colorama import Fore, Style
@@ -12,6 +14,8 @@ from vnchat.state_logic import CharacterStateUpdater
 
 
 class VisualNovelChat:
+    """ビジュアルノベル風ロールプレイチャットの実行エンジン。"""
+
     def __init__(
         self,
         app_config: AppConfig,
@@ -19,6 +23,7 @@ class VisualNovelChat:
         profile: CharacterProfile,
         user_name: str,
     ):
+        """バックエンド・会話管理・表示・状態更新を初期化する。"""
         self.user_name = user_name
         self.app_config = app_config
         self.tuning = tuning
@@ -52,6 +57,7 @@ class VisualNovelChat:
         print(f"{Fore.GREEN}バックエンド初期化完了！{Style.RESET_ALL}")
 
     def start_conversation(self) -> None:
+        """オープニングを表示して会話セッションを開始する。"""
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
         print(
             f"{Fore.WHITE}  ビジュアルノベル風ロールプレイチャット：ルートチャット{Style.RESET_ALL}"
@@ -71,6 +77,7 @@ class VisualNovelChat:
         print(f"{Fore.WHITE}{'-'*60}{Style.RESET_ALL}")
 
     def chat_loop(self) -> None:
+        """ユーザー入力をループで受け、会話を継続する。"""
         self.start_conversation()
 
         while True:
@@ -94,6 +101,7 @@ class VisualNovelChat:
             self._finalize_turn(user_input=user_input, assistant_response=response)
 
     def _read_user_input(self) -> str | None:
+        """ユーザー入力を1回ぶん読み取る（中断時はNone）。"""
         raw = safe_input(f"{Fore.GREEN}{self.user_name} > {Style.RESET_ALL}")
         if raw is None:
             print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
@@ -101,6 +109,7 @@ class VisualNovelChat:
         return raw.strip()
 
     def _handle_command(self, user_input: str) -> str:
+        """組み込みコマンド（quit/save/state/summary）を処理する。"""
         cmd = user_input.lower()
         if cmd == "quit":
             print(f"{Fore.CYAN}会話を終了します。{Style.RESET_ALL}")
@@ -133,11 +142,13 @@ class VisualNovelChat:
         return "none"
 
     def _finalize_turn(self, user_input: str, assistant_response: str) -> None:
+        """応答表示後に履歴・ターン数・状態更新を反映する。"""
         self.conversation.add_message("assistant", assistant_response)
         self.turn_count += 1
         self._update_character_state(user_input)
 
     def _generate_response(self) -> str:
+        """プロンプトを構築してLLMから応答を生成する。"""
         prompt = self._build_prompt_with_generation_budget(
             reserve_tokens=self.tuning.reserve_tokens
         )
@@ -204,6 +215,7 @@ class VisualNovelChat:
         return response
 
     def _needs_novel_retry(self, text: str) -> bool:
+        """応答が短すぎる等の場合に再生成すべきか判定する。"""
         if not text:
             return True
 
@@ -219,6 +231,7 @@ class VisualNovelChat:
         return False
 
     def _print_vn_display(self, text: str) -> None:
+        """表示レンダラに委譲してノベル風表示を行う。"""
         self.display_renderer.print_vn_display(text)
 
     def _build_prompt_with_generation_budget(
@@ -226,6 +239,7 @@ class VisualNovelChat:
         reserve_tokens: int,
         system_prompt_override: str | None = None,
     ) -> str:
+        """コンテキスト長を超えないよう履歴を間引きつつプロンプトを構築する。"""
         all_messages = list(self.conversation.messages)
         system_prompt = system_prompt_override or self.system_prompt
 
@@ -269,6 +283,7 @@ class VisualNovelChat:
 
     @staticmethod
     def _build_prompt(context: list[dict[str, str]]) -> str:
+        """会話コンテキストをLlama-3系のチャット形式に直列化する。"""
         prompt_parts: list[str] = []
         for msg in context:
             role = msg["role"]
@@ -282,6 +297,7 @@ class VisualNovelChat:
         return "".join(prompt_parts)
 
     def _update_character_state(self, user_input: str) -> None:
+        """ユーザー入力に基づいてキャラクター状態を更新する。"""
         self.state_updater.update_character_state(
             turn_count=self.turn_count, user_input=user_input
         )

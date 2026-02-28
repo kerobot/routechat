@@ -1,3 +1,8 @@
+"""キャラクター状態（好感度・温度感・心境）を更新するロジック。
+
+軽量なヒューリスティック更新と、LLMによる分析更新を状況に応じて使い分ける。
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,6 +16,8 @@ from vnchat.models import CharacterState, StateAnalysis
 
 
 class CharacterStateUpdater:
+    """会話の流れからキャラクター状態を更新する。"""
+
     _POSITIVE_WORDS = (
         "ありがとう",
         "嬉しい",
@@ -33,6 +40,7 @@ class CharacterStateUpdater:
         llm: Any,
         user_name: str,
     ) -> None:
+        """状態更新器を初期化する。"""
         self.conversation = conversation
         self.profile = profile
         self.tuning = tuning
@@ -40,6 +48,7 @@ class CharacterStateUpdater:
         self.user_name = user_name
 
     def update_character_state(self, turn_count: int, user_input: str) -> None:
+        """ユーザー入力に応じて状態を更新する（LLM分析 or 軽量更新）。"""
         state = self.conversation.character_state
 
         force_eval = any(
@@ -69,6 +78,7 @@ class CharacterStateUpdater:
         self._update_state_fallback(state=state, user_input=user_input)
 
     def _update_state_lightweight(self, state: CharacterState, user_input: str) -> None:
+        """簡易ルールで状態を更新する（LLMを使わない）。"""
         if self._contains_any(user_input, self._POSITIVE_WORDS):
             state.affection = self._clamp(state.affection + 0.15, 0.0, 10.0)
             if state.mood not in ("苛立ち", "警戒"):
@@ -90,6 +100,7 @@ class CharacterStateUpdater:
     def _apply_analysis_result(
         self, state: CharacterState, analysis: StateAnalysis, user_input: str
     ) -> None:
+        """LLM分析結果を状態に反映する。"""
         affection_delta_value: float | None = None
         affection_delta = analysis.get("affection_delta")
         if isinstance(affection_delta, (int, float)):
@@ -122,6 +133,7 @@ class CharacterStateUpdater:
         )
 
     def _update_state_fallback(self, state: CharacterState, user_input: str) -> None:
+        """分析に失敗した場合のフォールバック更新。"""
         if self._contains_any(user_input, self._POSITIVE_WORDS):
             state.affection = min(10, state.affection + 0.5)
             state.mood = "満更でもない"
@@ -141,6 +153,7 @@ class CharacterStateUpdater:
 
     @staticmethod
     def _contains_any(text: str, words: tuple[str, ...]) -> bool:
+        """文字列に指定語群のいずれかが含まれるか判定する。"""
         return any(word in (text or "") for word in words)
 
     def _finalize_state_update(
@@ -149,6 +162,7 @@ class CharacterStateUpdater:
         affection_delta: float | None,
         user_input: str,
     ) -> None:
+        """状態更新後のドリフト/上書き処理をまとめて適用する。"""
         self._apply_affection_drift(
             state=state,
             mood=state.mood,
@@ -163,6 +177,7 @@ class CharacterStateUpdater:
         proposed_mood: Any,
         conf_value: float | None,
     ) -> str | None:
+        """分析器の提案心境を、許容リストやヒステリシスを考慮して採用/却下する。"""
         if not (
             isinstance(proposed_mood, str)
             and proposed_mood in self.profile.allowed_moods
@@ -197,6 +212,7 @@ class CharacterStateUpdater:
         affection_delta: float | None,
         user_input: str,
     ) -> None:
+        """明示的な変化が小さいときに、雰囲気に応じた好感度ドリフトを加える。"""
         if isinstance(affection_delta, (int, float)) and affection_delta > 0.05:
             return
 
@@ -213,6 +229,7 @@ class CharacterStateUpdater:
             state.affection = self._clamp(state.affection + bump, 0.0, 10.0)
 
     def _apply_affection_overrides(self, state: CharacterState) -> None:
+        """好感度の閾値に応じて心境（好意的/クーデレ）を段階的に上書きする。"""
         hysteresis = 0.35
         soft_moods = ("通常", "満更でもない", "安心", "興味", "好意的", "クーデレ")
 
@@ -236,9 +253,11 @@ class CharacterStateUpdater:
 
     @staticmethod
     def _clamp(value: float, min_value: float, max_value: float) -> float:
+        """値を[min_value, max_value]に収める。"""
         return max(min_value, min(max_value, value))
 
     def _format_recent_dialogue(self, max_messages: int = 6) -> str:
+        """直近の会話履歴を分析用に短く整形する。"""
         items: list[str] = []
         for msg in self.conversation.messages[-max_messages:]:
             if msg.role == "user":
@@ -255,6 +274,7 @@ class CharacterStateUpdater:
         return "\n".join(items) if items else "(なし)"
 
     def _extract_first_json_object(self, text: str) -> dict[str, Any] | None:
+        """テキストから最初のJSONオブジェクトを抽出する（失敗時はNone）。"""
         if not text:
             return None
         cleaned = text.strip()
@@ -276,6 +296,7 @@ class CharacterStateUpdater:
         return obj
 
     def _analyze_state_with_llm(self, user_input: str) -> StateAnalysis | None:
+        """LLMで状態分析（mood/affection_delta/temperature等）を行う。"""
         state = self.conversation.character_state
         recent_dialogue = self._format_recent_dialogue(max_messages=8)
         current_state = (

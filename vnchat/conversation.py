@@ -1,3 +1,9 @@
+"""会話履歴・要約・状態をまとめて管理するモジュール。
+
+LLMは本体に永続的な記憶を持たない前提なので、
+アプリ側でメッセージ履歴や要約を持ち、次回プロンプトに混ぜる役割を担う。
+"""
+
 from __future__ import annotations
 
 import json
@@ -12,12 +18,19 @@ from vnchat.models import CharacterState, Message
 
 
 class ConversationManager:
+    """会話履歴とキャラクター状態を管理する。
+
+    履歴が長くなりすぎた場合は要約を生成し、
+    コンテキスト内に収まるように古い履歴を圧縮する。
+    """
+
     def __init__(
         self,
         user_name: str,
         llm: Any,
         tuning: RuntimeTuning,
     ):
+        """会話マネージャを初期化する。"""
         self.messages: list[Message] = []
         self.summary_history: list[str] = []
         self.character_state = CharacterState()
@@ -26,6 +39,7 @@ class ConversationManager:
         self.tuning = tuning
 
     def add_message(self, role: str, content: str) -> None:
+        """メッセージを履歴に追加し、必要なら要約をトリガーする。"""
         msg = Message(role=role, content=content)
         self.messages.append(msg)
         if role == "assistant":
@@ -35,6 +49,7 @@ class ConversationManager:
             self._trigger_summary()
 
     def _trigger_summary(self) -> None:
+        """閾値を超えた会話履歴を要約し、履歴を圧縮する。"""
         print(f"\n{Fore.YELLOW}[システム] 会話履歴を要約中...{Style.RESET_ALL}")
 
         system_msg = [m for m in self.messages if m.role == "system"]
@@ -51,6 +66,7 @@ class ConversationManager:
             )
 
     def _create_summary(self, messages: list[Message]) -> str:
+        """指定メッセージ群の要約を生成する（LLM優先、失敗時は簡易要約）。"""
         if self.llm is not None:
             try:
                 summary = self._create_summary_with_llm(messages)
@@ -69,6 +85,7 @@ class ConversationManager:
         return "\n".join(summary_parts)
 
     def _create_summary_with_llm(self, messages: list[Message]) -> str:
+        """LLMを用いて要約を生成する。"""
         if self.llm is None:
             return ""
 
@@ -124,6 +141,7 @@ class ConversationManager:
     def get_context_for_llm(
         self, system_prompt: str, messages_override: list[Message] | None = None
     ) -> list[dict[str, str]]:
+        """LLMに渡すコンテキスト（system + 会話履歴）を組み立てる。"""
         system_parts = [system_prompt]
 
         if self.summary_history:
@@ -151,6 +169,7 @@ class ConversationManager:
         return context
 
     def save_to_file(self, filename: str) -> None:
+        """会話履歴・要約・状態をJSONとして保存する。"""
         data = {
             "messages": [asdict(m) for m in self.messages],
             "summary_history": self.summary_history,

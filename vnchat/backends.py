@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """バックエンド実装の共通アダプタ。
 
 このモジュールは、ローカル `llama-cpp-python`（CUDA）と
 HTTP の `llama-server`（API）の2系統を同じ呼び出し形にそろえる。
 起動時診断、HTTP補助、トークナイズ、推論呼び出しをまとめて提供する。
 """
+
+from __future__ import annotations
 
 import sys
 import urllib.error

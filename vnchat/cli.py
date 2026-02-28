@@ -1,3 +1,9 @@
+"""CLI（コマンドライン）からルートチャットを起動するためのエントリポイント。
+
+起動引数の解釈、GPUプロファイル表示、バックエンド診断の実行、
+ユーザー名の入力受付を行い、チャットエンジンを開始する。
+"""
+
 from __future__ import annotations
 
 import os
@@ -15,6 +21,7 @@ from vnchat.io_utils import safe_input
 
 
 def main() -> None:
+    """アプリを起動して対話セッションを開始する。"""
     init(autoreset=True)
 
     args = parse_cli_args()

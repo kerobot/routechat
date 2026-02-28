@@ -1,3 +1,9 @@
+"""キャラクター設定（プロファイル）を定義するモジュール。
+
+ここに書かれたシステムプロンプトやオープニング文は、
+毎ターンのプロンプトに混ぜられ、キャラクター性と世界観の維持に使われる。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +11,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CharacterProfile:
+    """キャラクターを成立させるためのプロンプトテンプレート群。"""
+
     name: str
     system_prompt_template: str
     opening_scene_template: str

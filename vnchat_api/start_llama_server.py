@@ -1,3 +1,5 @@
+"""ROCm/HIP版 llama-server を起動し、ヘルスチェックが通るまで待機する起動スクリプト。"""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,7 @@ from pathlib import Path
 
 
 def wait_for_health(server_url: str, timeout_sec: float = 60.0) -> bool:
+    """`/health` が200を返すまでリトライする。"""
     health_url = f"{server_url.rstrip('/')}/health"
     deadline = time.time() + timeout_sec
 
@@ -24,6 +27,7 @@ def wait_for_health(server_url: str, timeout_sec: float = 60.0) -> bool:
 
 
 def build_command(args: argparse.Namespace) -> list[str]:
+    """引数から llama-server 起動コマンドを組み立てる。"""
     cmd = [
         str(args.server_binary),
         "-m",
@@ -45,6 +49,7 @@ def build_command(args: argparse.Namespace) -> list[str]:
 
 
 def parse_args() -> argparse.Namespace:
+    """CLI引数を解析する。"""
     parser = argparse.ArgumentParser(
         description="ROCm/HIP 版 llama-server を起動して API 待受します。"
     )
@@ -60,6 +65,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """llama-server を起動し、ヘルスチェック後に待機する。"""
     args = parse_args()
 
     if not args.server_binary.exists():
