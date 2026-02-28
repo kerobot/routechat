@@ -141,6 +141,7 @@ python visual_novel_chat.py --backend api --gpu-profile rx7900xt-20gb --api-serv
 ### コマンド
 
 - `state`：現在の状態（好感度/温度感/心境）を表示
+- `summary`：これまでの会話要約（要約履歴）を表示
 - `save`：会話履歴を `chat_history.json` に保存
 - `quit`：終了（保存確認あり）
 
@@ -433,6 +434,8 @@ system prompt と要約に“継続性ルール”を入れている。
 - ただし `苛立ち` / `警戒` のような強いネガは優先し、強制上書きしない
 
 しきい値は `VisualNovelChat.AFFECTION_FAVORABLE_THRESHOLD` / `VisualNovelChat.AFFECTION_KUUDERE_THRESHOLD` で調整できる。
+
+（現状の実装では、しきい値は [vnchat/config.py](vnchat/config.py) の `RuntimeTuning`（`affection_favorable_threshold` / `affection_kuudere_threshold`）で調整する）
 
 ---
 
