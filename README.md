@@ -79,7 +79,7 @@ python visual_novel_chat.py
 - CUDAモード（`llama-cpp-python` 直呼び）
 
 ```powershell
-python visual_novel_chat.py --backend cuda --model-path .\models\umiyuki-Umievo-itr012-Gleipnir-7B-Q6_K.gguf --n-gpu-layers -1 --n-ctx 4096
+python visual_novel_chat.py --backend cuda --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf --n-gpu-layers -1 --n-ctx 4096
 ```
 
 - APIモード（ROCm/HIP想定の `llama-server`）

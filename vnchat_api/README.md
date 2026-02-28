@@ -15,6 +15,8 @@
 - Python 仮想環境（`venv`）が有効化済み
 - `vnchat_api/chat_via_llama_server.py` は `vnchat/http_client.py` を利用するため、リポジトリルートをカレントにして実行する
 
+https://github.com/lemonade-sdk/llamacpp-rocm
+
 > メモ
 > - CUDA環境で `--backend cuda` を使う場合は、このディレクトリの手順は不要
 > - AMD GPU + ROCm/HIP 構成では、`--backend api` で本手順を使う運用を推奨
@@ -24,12 +26,12 @@
 ### 1. PowerShell でサーバー起動
 
 ```powershell
-./vnchat_api/run_llama_server.ps1 \
-  -ServerBinary ".\bin\llama-server.exe" \
-  -ModelPath ".\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf" \
-  -BindHost 127.0.0.1 \
-  -ContextSize 8192 \
-  -GpuLayers -1 \
+./vnchat_api/run_llama_server.ps1 `
+  -ServerBinary ".\bin\llama-server.exe" `
+  -ModelPath ".\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf" `
+  -BindHost 127.0.0.1 `
+  -ContextSize 8192 `
+  -GpuLayers -1 `
   -Port 8080
 ```
 
@@ -54,11 +56,11 @@ python .\vnchat_api\chat_via_llama_server.py \
 PowerShell ではなく Python から `llama-server` を起動したい場合:
 
 ```powershell
-python .\vnchat_api\start_llama_server.py \
-  --server-binary .\bin\llama-server.exe \
-  --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf \
-  --ctx-size 8192 \
-  --n-gpu-layers -1 \
+python .\vnchat_api\start_llama_server.py `
+  --server-binary .\bin\llama-server.exe `
+  --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf `
+  --ctx-size 8192 `
+  --n-gpu-layers -1 `
   --port 8080
 ```
 

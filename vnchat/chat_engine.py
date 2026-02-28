@@ -66,7 +66,7 @@ class VisualNovelChat:
         self.conversation.add_message("assistant", self.opening_scene)
 
         print(
-            f"{Fore.GREEN}コマンド: 'quit'で終了 | 'save'で保存 | 'state'で状態確認{Style.RESET_ALL}"
+            f"{Fore.GREEN}コマンド: 'quit'で終了 | 'save'で保存 | 'state'で状態確認 | 'summary'で要約確認{Style.RESET_ALL}"
         )
         print(f"{Fore.WHITE}{'-'*60}{Style.RESET_ALL}")
 
@@ -118,6 +118,16 @@ class VisualNovelChat:
             print(self.conversation.character_state.to_string())
             print(f"会話履歴数: {len(self.conversation.messages)}")
             print(f"要約履歴数: {len(self.conversation.summary_history)}")
+            return "continue"
+
+        if cmd == "summary":
+            if not self.conversation.summary_history:
+                print(f"{Fore.YELLOW}[要約] まだ要約はありません。{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.YELLOW}[これまでの会話要約]{Style.RESET_ALL}")
+                for i, s in enumerate(self.conversation.summary_history, start=1):
+                    print(f"{Fore.CYAN}--- 要約 {i} ---{Style.RESET_ALL}")
+                    print(s)
             return "continue"
 
         return "none"

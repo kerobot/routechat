@@ -10,12 +10,12 @@ class VNDisplayRenderer:
         self.user_name = user_name
 
     def print_vn_display(self, text: str) -> None:
-        scene_marker = "【竜胆の動作・情景描写】"
-        change_marker = "【状況の変化】"
         normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
-        normalized = normalized.replace(scene_marker, f"\n{scene_marker}\n")
-        normalized = normalized.replace(change_marker, f"\n{change_marker}\n")
+        # 不要なマーカーを削除
+        for marker in ("【竜胆の動作・情景描写】", "【状況の変化】"):
+            normalized = normalized.replace(marker, "")
+
         normalized = re.sub(r"([^\n])(竜胆[:：])", r"\1\n\2", normalized)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip("\n")
 
@@ -52,8 +52,6 @@ class VNDisplayRenderer:
             stripped = line.strip()
 
             if not stripped:
-                continue
-            if stripped in (scene_marker, change_marker):
                 continue
 
             mix_idx = -1
