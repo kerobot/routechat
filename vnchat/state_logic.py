@@ -1,4 +1,4 @@
-"""キャラクター状態（好感度・温度感・心境）を更新するロジック。
+"""キャラクター状態（信頼度・親密度・温度感・心境）を更新するロジック。
 
 軽量なヒューリスティック更新と、LLMによる分析更新を状況に応じて使い分ける。
 """
@@ -31,6 +31,15 @@ class CharacterStateUpdater:
         "すごい",
     )
     _NEGATIVE_WORDS = ("ダメ", "辛い", "無理")
+    _ROMANCE_WORDS = (
+        "会いたい",
+        "好き",
+        "デート",
+        "二人",
+        "一緒に",
+        "嫉妬",
+        "手をつな",
+    )
 
     def __init__(
         self,
@@ -80,20 +89,29 @@ class CharacterStateUpdater:
     def _update_state_lightweight(self, state: CharacterState, user_input: str) -> None:
         """簡易ルールで状態を更新する（LLMを使わない）。"""
         if self._contains_any(user_input, self._POSITIVE_WORDS):
-            state.affection = self._clamp(state.affection + 0.15, 0.0, 10.0)
+            state.trust = self._clamp(state.trust + 0.18, 0.0, 10.0)
+            state.intimacy = self._clamp(state.intimacy + 0.08, 0.0, 10.0)
             if state.mood not in ("苛立ち", "警戒"):
                 state.mood = "満更でもない"
             state.temperature = self._clamp(state.temperature + 0.02, 0.0, 1.0)
         elif self._contains_any(user_input, self._NEGATIVE_WORDS):
+            state.trust = self._clamp(state.trust - 0.10, 0.0, 10.0)
             if state.mood not in ("苛立ち", "警戒"):
                 state.mood = "心配"
             state.temperature = self._clamp(state.temperature + 0.02, 0.0, 1.0)
+        elif self._contains_any(user_input, self._ROMANCE_WORDS):
+            state.intimacy = self._clamp(state.intimacy + 0.18, 0.0, 10.0)
+            if state.mood in ("通常", "満更でもない", "好意的"):
+                state.mood = "意識してる"
+            state.temperature = self._clamp(state.temperature + 0.03, 0.0, 1.0)
         else:
             state.temperature = self._clamp(state.temperature * 0.99, 0.0, 1.0)
 
         self._finalize_state_update(
             state=state,
-            affection_delta=None,
+            trust_delta=None,
+            intimacy_delta=None,
+            romance_signal=None,
             user_input=user_input,
         )
 
@@ -101,12 +119,19 @@ class CharacterStateUpdater:
         self, state: CharacterState, analysis: StateAnalysis, user_input: str
     ) -> None:
         """LLM分析結果を状態に反映する。"""
-        affection_delta_value: float | None = None
-        affection_delta = analysis.get("affection_delta")
-        if isinstance(affection_delta, (int, float)):
-            affection_delta_value = self._clamp(float(affection_delta), -1.0, 1.0)
-            state.affection = self._clamp(
-                state.affection + affection_delta_value, 0.0, 10.0
+        trust_delta_value: float | None = None
+        intimacy_delta_value: float | None = None
+
+        trust_delta = analysis.get("trust_delta")
+        if isinstance(trust_delta, (int, float)):
+            trust_delta_value = self._clamp(float(trust_delta), -1.0, 1.0)
+            state.trust = self._clamp(state.trust + trust_delta_value, 0.0, 10.0)
+
+        intimacy_delta = analysis.get("intimacy_delta")
+        if isinstance(intimacy_delta, (int, float)):
+            intimacy_delta_value = self._clamp(float(intimacy_delta), -1.0, 1.0)
+            state.intimacy = self._clamp(
+                state.intimacy + intimacy_delta_value, 0.0, 10.0
             )
 
         temperature = analysis.get("temperature")
@@ -126,28 +151,43 @@ class CharacterStateUpdater:
         if next_mood is not None:
             state.mood = next_mood
 
+        signal_value = analysis.get("romance_signal")
+        romance_signal_value = (
+            float(signal_value) if isinstance(signal_value, (int, float)) else None
+        )
+
         self._finalize_state_update(
             state=state,
-            affection_delta=affection_delta_value,
+            trust_delta=trust_delta_value,
+            intimacy_delta=intimacy_delta_value,
+            romance_signal=romance_signal_value,
             user_input=user_input,
         )
 
     def _update_state_fallback(self, state: CharacterState, user_input: str) -> None:
         """分析に失敗した場合のフォールバック更新。"""
         if self._contains_any(user_input, self._POSITIVE_WORDS):
-            state.affection = min(10, state.affection + 0.5)
+            state.trust = self._clamp(state.trust + 0.30, 0.0, 10.0)
+            state.intimacy = self._clamp(state.intimacy + 0.12, 0.0, 10.0)
             state.mood = "満更でもない"
             state.temperature = self._clamp(state.temperature + 0.05, 0.0, 1.0)
         elif self._contains_any(user_input, self._NEGATIVE_WORDS):
+            state.trust = self._clamp(state.trust - 0.20, 0.0, 10.0)
             state.mood = "心配"
             state.temperature = self._clamp(state.temperature + 0.03, 0.0, 1.0)
+        elif self._contains_any(user_input, self._ROMANCE_WORDS):
+            state.intimacy = self._clamp(state.intimacy + 0.25, 0.0, 10.0)
+            state.mood = "照れ隠し"
+            state.temperature = self._clamp(state.temperature + 0.05, 0.0, 1.0)
         else:
             state.mood = "通常"
             state.temperature = self._clamp(state.temperature * 0.98, 0.0, 1.0)
 
         self._finalize_state_update(
             state=state,
-            affection_delta=None,
+            trust_delta=None,
+            intimacy_delta=None,
+            romance_signal=None,
             user_input=user_input,
         )
 
@@ -159,17 +199,21 @@ class CharacterStateUpdater:
     def _finalize_state_update(
         self,
         state: CharacterState,
-        affection_delta: float | None,
+        trust_delta: float | None,
+        intimacy_delta: float | None,
+        romance_signal: float | None,
         user_input: str,
     ) -> None:
         """状態更新後のドリフト/上書き処理をまとめて適用する。"""
-        self._apply_affection_drift(
+        self._apply_intimacy_drift(
             state=state,
             mood=state.mood,
-            affection_delta=affection_delta,
+            trust_delta=trust_delta,
+            intimacy_delta=intimacy_delta,
             user_input=user_input,
         )
-        self._apply_affection_overrides(state)
+        self._apply_intimacy_overrides(state)
+        self._apply_romance_stage(state, user_input, romance_signal)
 
     def _resolve_proposed_mood(
         self,
@@ -198,58 +242,128 @@ class CharacterStateUpdater:
         ):
             return None
 
-        if proposed_mood == "クーデレ" and state.affection < (
+        if (
+            proposed_mood in ("意識してる", "照れ隠し", "素直", "独占欲")
+            and conf_value is not None
+            and conf_value < 0.45
+        ):
+            return None
+
+        if proposed_mood == "クーデレ" and state.intimacy < (
             self.tuning.affection_kuudere_threshold - 0.30
         ):
             return "好意的"
 
+        if proposed_mood == "素直" and state.romance_stage < 3:
+            return "照れ隠し"
+
+        if proposed_mood == "独占欲" and state.romance_stage < 4:
+            return "意識してる"
+
         return proposed_mood
 
-    def _apply_affection_drift(
+    def _apply_intimacy_drift(
         self,
         state: CharacterState,
         mood: str,
-        affection_delta: float | None,
+        trust_delta: float | None,
+        intimacy_delta: float | None,
         user_input: str,
     ) -> None:
-        """明示的な変化が小さいときに、雰囲気に応じた好感度ドリフトを加える。"""
-        if isinstance(affection_delta, (int, float)) and affection_delta > 0.05:
+        """明示的変化が弱いときに、文脈に応じた親密度ドリフトを加える。"""
+        if isinstance(intimacy_delta, (int, float)) and intimacy_delta > 0.05:
             return
 
-        bump = 0.0
-        if mood in ("クーデレ", "好意的"):
-            bump += 0.12
+        intimacy_bump = 0.0
+        trust_bump = 0.0
+
+        if mood in ("クーデレ", "素直", "独占欲"):
+            intimacy_bump += 0.12
+        elif mood in ("好意的", "意識してる", "照れ隠し"):
+            intimacy_bump += 0.08
         elif mood in ("満更でもない", "安心", "興味"):
-            bump += 0.06
+            intimacy_bump += 0.05
 
         if self._contains_any(user_input, self._POSITIVE_WORDS):
-            bump += 0.08
+            trust_bump += 0.06
 
-        if bump > 0.0:
-            state.affection = self._clamp(state.affection + bump, 0.0, 10.0)
+        if self._contains_any(user_input, self._ROMANCE_WORDS):
+            intimacy_bump += 0.10
 
-    def _apply_affection_overrides(self, state: CharacterState) -> None:
-        """好感度の閾値に応じて心境（好意的/クーデレ）を段階的に上書きする。"""
+        if isinstance(trust_delta, (int, float)) and trust_delta < -0.2:
+            trust_bump *= 0.3
+
+        if intimacy_bump > 0.0:
+            state.intimacy = self._clamp(state.intimacy + intimacy_bump, 0.0, 10.0)
+        if trust_bump > 0.0:
+            state.trust = self._clamp(state.trust + trust_bump, 0.0, 10.0)
+
+    def _apply_intimacy_overrides(self, state: CharacterState) -> None:
+        """親密度閾値に応じて心境（好意的/クーデレ）を段階的に上書きする。"""
         hysteresis = 0.35
-        soft_moods = ("通常", "満更でもない", "安心", "興味", "好意的", "クーデレ")
+        soft_moods = (
+            "通常",
+            "満更でもない",
+            "安心",
+            "興味",
+            "意識してる",
+            "照れ隠し",
+            "好意的",
+            "クーデレ",
+            "素直",
+        )
 
-        if state.mood == "クーデレ" and state.affection >= (
+        if state.mood == "クーデレ" and state.intimacy >= (
             self.tuning.affection_kuudere_threshold - hysteresis
         ):
             return
-        if state.mood == "好意的" and state.affection >= (
+        if state.mood == "好意的" and state.intimacy >= (
             self.tuning.affection_favorable_threshold - hysteresis
         ):
             return
 
-        if state.affection >= self.tuning.affection_kuudere_threshold:
+        if state.intimacy >= self.tuning.affection_kuudere_threshold:
             if state.mood in soft_moods and state.mood not in ("苛立ち", "警戒"):
                 state.mood = "クーデレ"
             return
 
-        if state.affection >= self.tuning.affection_favorable_threshold:
-            if state.mood in ("通常", "満更でもない", "安心", "興味"):
+        if state.intimacy >= self.tuning.affection_favorable_threshold:
+            if state.mood in (
+                "通常",
+                "満更でもない",
+                "安心",
+                "興味",
+                "意識してる",
+                "照れ隠し",
+            ):
                 state.mood = "好意的"
+
+    def _apply_romance_stage(
+        self,
+        state: CharacterState,
+        user_input: str,
+        romance_signal: float | None,
+    ) -> None:
+        """信頼/親密度/会話内容から恋愛段階を進める（段階は下げない）。"""
+        stage = state.romance_stage
+        romance_hint = self._contains_any(user_input, self._ROMANCE_WORDS) or (
+            isinstance(romance_signal, (int, float)) and romance_signal >= 0.55
+        )
+
+        if stage < 1 and state.trust >= 4.5 and state.intimacy >= 3.2:
+            state.romance_stage = 1
+            return
+
+        if stage < 2 and state.trust >= 5.2 and state.intimacy >= 4.5 and romance_hint:
+            state.romance_stage = 2
+            return
+
+        if stage < 3 and state.trust >= 6.2 and state.intimacy >= 6.0 and romance_hint:
+            state.romance_stage = 3
+            return
+
+        if stage < 4 and state.trust >= 7.0 and state.intimacy >= 7.4 and romance_hint:
+            state.romance_stage = 4
 
     @staticmethod
     def _clamp(value: float, min_value: float, max_value: float) -> float:
@@ -296,12 +410,13 @@ class CharacterStateUpdater:
         return obj
 
     def _analyze_state_with_llm(self, user_input: str) -> StateAnalysis | None:
-        """LLMで状態分析（mood/affection_delta/temperature等）を行う。"""
+        """LLMで状態分析（mood/trust_delta/intimacy_delta等）を行う。"""
         state = self.conversation.character_state
         recent_dialogue = self._format_recent_dialogue(max_messages=8)
         current_state = (
-            f"affection={state.affection:.2f}, temperature={state.temperature:.2f}, "
-            f"mood={state.mood}, scene_count={state.scene_count}"
+            f"trust={state.trust:.2f}, intimacy={state.intimacy:.2f}, "
+            f"temperature={state.temperature:.2f}, mood={state.mood}, "
+            f"romance_stage={state.romance_stage}, scene_count={state.scene_count}"
         )
 
         analyzer_prompt = self.profile.state_analyzer_prompt_template.format(
@@ -340,21 +455,38 @@ class CharacterStateUpdater:
         if isinstance(mood, str):
             analysis["mood"] = mood
 
+        trust_delta = parsed.get("trust_delta")
+        if isinstance(trust_delta, (int, float)):
+            analysis["trust_delta"] = float(trust_delta)
+
+        intimacy_delta = parsed.get("intimacy_delta")
+        if isinstance(intimacy_delta, (int, float)):
+            analysis["intimacy_delta"] = float(intimacy_delta)
+
+        # 旧スキーマ（affection_delta）との後方互換
         affection_delta = parsed.get("affection_delta")
-        if isinstance(affection_delta, (int, float)):
-            analysis["affection_delta"] = float(affection_delta)
+        if "intimacy_delta" not in analysis and isinstance(
+            affection_delta, (int, float)
+        ):
+            analysis["intimacy_delta"] = float(affection_delta)
 
         temperature = parsed.get("temperature")
         if isinstance(temperature, (int, float)):
             analysis["temperature"] = float(temperature)
+
+        romance_signal = parsed.get("romance_signal")
+        if isinstance(romance_signal, (int, float)):
+            analysis["romance_signal"] = self._clamp(float(romance_signal), 0.0, 1.0)
 
         if isinstance(confidence, (int, float)):
             analysis["confidence"] = float(confidence)
 
         if (
             "mood" not in analysis
-            and "affection_delta" not in analysis
+            and "trust_delta" not in analysis
+            and "intimacy_delta" not in analysis
             and "temperature" not in analysis
+            and "romance_signal" not in analysis
         ):
             return None
 

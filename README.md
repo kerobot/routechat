@@ -42,10 +42,12 @@ python -m pip install --upgrade pip
 このプロジェクトは共通で `colorama` を利用し、`llama-cpp-python` は CUDAモード利用時のみ必要。
 
 ```powershell
-pip install colorama
+pip install colorama types-colorama
 
 # CUDAモード（--backend cuda）を使う場合のみ
-pip install llama-cpp-python
+# CUDA Toolkit と Visual C++ を導入しておくこと
+$env:CMAKE_ARGS="-DGGML_CUDA=on -DCUDA_ARCHITECTURES=native"
+pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
 
 > NOTE

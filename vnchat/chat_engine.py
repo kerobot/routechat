@@ -244,6 +244,8 @@ class VisualNovelChat:
         system_prompt = system_prompt_override or self.system_prompt
 
         def build_with_keep(keep: int) -> str:
+            # 末尾keep件だけ履歴を残してプロンプトを組み直す。
+            # keepが範囲外でも安全にクランプする。
             keep = max(0, min(keep, len(all_messages)))
             trimmed = all_messages[-keep:] if keep > 0 else []
             context = self.conversation.get_context_for_llm(
@@ -251,17 +253,24 @@ class VisualNovelChat:
             )
             return self._build_prompt(context)
 
+        # まずは履歴を全保持したプロンプトを試す。
         prompt = build_with_keep(len(all_messages))
         try:
             prompt_tokens = len(self.llm.tokenize(prompt.encode("utf-8")))
         except Exception:
             return prompt
 
+        # 生成用にreserve_tokensを確保した上で収まるなら、そのまま採用。
         if prompt_tokens <= (self.llm.n_ctx() - reserve_tokens):
             return prompt
 
+        # 収まらない場合は「残す履歴件数」を二分探索で最大化する。
+        # 条件: keepを増やすほどトークン数は基本的に増える（単調性を仮定）。
+        # なので mid が収まるなら右側(より多く残す)を探索し、
+        # 収まらないなら左側(さらに削る)を探索する。
         lo = 0
         hi = len(all_messages)
+        # 最低限のフォールバック（履歴0件）を初期解として持っておく。
         best_prompt = build_with_keep(0)
 
         while lo <= hi:
@@ -279,6 +288,7 @@ class VisualNovelChat:
             else:
                 hi = mid - 1
 
+        # 制約を満たす中で「最も多く履歴を残せる」プロンプトを返す。
         return best_prompt
 
     @staticmethod

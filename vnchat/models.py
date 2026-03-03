@@ -1,7 +1,7 @@
 """会話データ・状態管理で使うデータモデル定義。
 
 - `Message`: 会話の1メッセージ
-- `CharacterState`: キャラクターの状態（好感度/温度感/心境など）
+- `CharacterState`: キャラクターの状態（信頼度/親密度/温度感/心境など）
 - `StateAnalysis`: 状態分析の結果（LLM出力）
 """
 
@@ -30,16 +30,20 @@ class Message:
 class CharacterState:
     """キャラクターの内面状態を表す（会話ごとに変化する）。"""
 
-    affection: float = 3.0
+    trust: float = 4.0
+    intimacy: float = 2.5
     temperature: float = 0.35
     mood: str = "通常"
+    romance_stage: int = 0
     scene_count: int = 0
 
     def to_string(self) -> str:
         """状態を表示用の短い文字列に整形する。"""
         return (
-            f"好感度: {self.affection}/10 | "
+            f"信頼度: {self.trust:.2f}/10 | "
+            f"親密度: {self.intimacy:.2f}/10 | "
             f"温度感: {self.temperature:.2f} | 現在の心境: {self.mood}"
+            f" | 恋愛段階: {self.romance_stage}"
         )
 
 
@@ -50,6 +54,8 @@ class StateAnalysis(TypedDict, total=False):
     """
 
     mood: str
-    affection_delta: float
+    trust_delta: float
+    intimacy_delta: float
     temperature: float
     confidence: float
+    romance_signal: float
