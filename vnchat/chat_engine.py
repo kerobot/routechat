@@ -10,6 +10,7 @@ from vnchat.config import AppConfig, RuntimeTuning
 from vnchat.conversation import ConversationManager
 from vnchat.io_utils import safe_input
 from vnchat.presentation import VNDisplayRenderer
+from vnchat.prompt_format import build_chat_prompt
 from vnchat.state_logic import CharacterStateUpdater
 
 
@@ -44,7 +45,11 @@ class VisualNovelChat:
             api_timeout_sec=app_config.api_timeout_sec,
         )
         self.conversation = ConversationManager(
-            user_name=user_name, llm=self.llm, tuning=tuning
+            user_name=user_name,
+            llm=self.llm,
+            tuning=tuning,
+            chat_template=self.app_config.chat_template,
+            stop_tokens=self.app_config.stop_tokens,
         )
         self.display_renderer = VNDisplayRenderer(user_name=user_name)
         self.state_updater = CharacterStateUpdater(
@@ -53,6 +58,8 @@ class VisualNovelChat:
             tuning=self.tuning,
             llm=self.llm,
             user_name=self.user_name,
+            chat_template=self.app_config.chat_template,
+            stop_tokens=self.app_config.stop_tokens,
         )
         print(f"{Fore.GREEN}バックエンド初期化完了！{Style.RESET_ALL}")
 
@@ -161,7 +168,7 @@ class VisualNovelChat:
             top_p=self.tuning.generation_top_p,
             top_k=self.tuning.generation_top_k,
             repeat_penalty=self.tuning.generation_repeat_penalty,
-            stop=["<|eot_id|>"],
+            stop=list(self.app_config.stop_tokens),
             stream=False,
         )
 
@@ -192,7 +199,7 @@ class VisualNovelChat:
                 top_p=self.tuning.generation_top_p,
                 top_k=self.tuning.generation_top_k,
                 repeat_penalty=self.tuning.generation_repeat_penalty,
-                stop=["<|eot_id|>"],
+                stop=list(self.app_config.stop_tokens),
                 stream=False,
             )
             retry_text = str(
@@ -291,20 +298,13 @@ class VisualNovelChat:
         # 制約を満たす中で「最も多く履歴を残せる」プロンプトを返す。
         return best_prompt
 
-    @staticmethod
-    def _build_prompt(context: list[dict[str, str]]) -> str:
-        """会話コンテキストをLlama-3系のチャット形式に直列化する。"""
-        prompt_parts: list[str] = []
-        for msg in context:
-            role = msg["role"]
-            content = msg["content"]
-            if role not in ("system", "user", "assistant"):
-                continue
-            prompt_parts.append(
-                f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
-            )
-        prompt_parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
-        return "".join(prompt_parts)
+    def _build_prompt(self, context: list[dict[str, str]]) -> str:
+        """会話コンテキストを選択中テンプレート形式で直列化する。"""
+        return build_chat_prompt(
+            messages=context,
+            template=self.app_config.chat_template,
+            add_generation_prompt=True,
+        )
 
     def _update_character_state(self, user_input: str) -> None:
         """ユーザー入力に基づいてキャラクター状態を更新する。"""

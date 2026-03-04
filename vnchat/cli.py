@@ -45,6 +45,10 @@ def main() -> None:
     else:
         print_llama_server_startup_diagnostics(server_url=app_config.api_server_url)
 
+    print(
+        f"{Fore.CYAN}[システム] chat_template={app_config.chat_template}, stop_tokens={list(app_config.stop_tokens)}{Style.RESET_ALL}"
+    )
+
     name_raw = safe_input("あなたの名前は？ (空=あなた): ")
     if name_raw is None:
         print(

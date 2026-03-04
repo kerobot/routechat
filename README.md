@@ -84,6 +84,22 @@ python visual_novel_chat.py
 python visual_novel_chat.py --backend cuda --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf --n-gpu-layers -1 --n-ctx 4096
 ```
 
+### モデル別チャットテンプレート切り替え
+
+`--chat-template` でプロンプトテンプレートを選択できます。
+
+- `auto`（デフォルト）: `--model-path` の名前から自動判定（Qwen/DeepSeek系は `chatml`）
+- `llama3`: Llama 3系テンプレートを強制
+- `chatml`: Qwen系テンプレートを強制
+
+```powershell
+# 自動判定（推奨）
+python visual_novel_chat.py --backend cuda --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf --chat-template auto
+
+# 明示指定
+python visual_novel_chat.py --backend cuda --model-path .\models\Llama-3-ELYZA-JP-8B-q4_k_m.gguf --chat-template llama3
+```
+
 - APIモード（ROCm/HIP想定の `llama-server`）
 
 ```powershell

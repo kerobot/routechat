@@ -15,6 +15,7 @@ from colorama import Fore, Style
 
 from vnchat.config import RuntimeTuning
 from vnchat.models import CharacterState, Message
+from vnchat.prompt_format import ChatTemplateName, build_chat_prompt
 
 
 class ConversationManager:
@@ -29,6 +30,8 @@ class ConversationManager:
         user_name: str,
         llm: Any,
         tuning: RuntimeTuning,
+        chat_template: ChatTemplateName,
+        stop_tokens: tuple[str, ...],
     ):
         """会話マネージャを初期化する。"""
         self.messages: list[Message] = []
@@ -37,6 +40,8 @@ class ConversationManager:
         self.user_name = user_name
         self.llm = llm
         self.tuning = tuning
+        self.chat_template = chat_template
+        self.stop_tokens = stop_tokens
 
     def add_message(self, role: str, content: str) -> None:
         """メッセージを履歴に追加し、必要なら要約をトリガーする。"""
@@ -118,10 +123,13 @@ class ConversationManager:
         )
         user = "以下の会話ログを要約して。\n\n" "## 会話ログ\n" f"{dialogue}\n"
 
-        prompt = (
-            f"<|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|>"
-            f"<|start_header_id|>user<|end_header_id|>\n\n{user}<|eot_id|>"
-            f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+        prompt = build_chat_prompt(
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            template=self.chat_template,
+            add_generation_prompt=True,
         )
 
         output = self.llm(
@@ -131,7 +139,7 @@ class ConversationManager:
             top_p=0.9,
             top_k=40,
             repeat_penalty=1.05,
-            stop=["<|eot_id|>"],
+            stop=list(self.stop_tokens),
             stream=False,
         )
 

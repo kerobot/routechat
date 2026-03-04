@@ -12,6 +12,13 @@ import argparse
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from vnchat.prompt_format import (
+    ChatTemplateArg,
+    ChatTemplateName,
+    default_stop_tokens,
+    resolve_chat_template,
+)
+
 
 BackendMode = Literal["cuda", "api"]
 GpuProfileName = Literal[
@@ -74,6 +81,8 @@ class AppConfig:
     n_ctx: int
     api_server_url: str
     api_timeout_sec: float
+    chat_template: ChatTemplateName
+    stop_tokens: tuple[str, ...]
     save_file: str = "chat_history.json"
 
 
@@ -88,6 +97,7 @@ class CliArgs:
     n_ctx: int
     api_server_url: str
     api_timeout_sec: float
+    chat_template: ChatTemplateArg
 
 
 @dataclass(frozen=True)
@@ -198,6 +208,12 @@ def parse_cli_args() -> CliArgs:
         default=120.0,
         help="apiモード時の推論タイムアウト秒",
     )
+    parser.add_argument(
+        "--chat-template",
+        choices=["auto", "llama3", "chatml"],
+        default="auto",
+        help="プロンプトのチャットテンプレート（autoでモデル名から判定）",
+    )
     ns = parser.parse_args()
 
     return CliArgs(
@@ -208,6 +224,7 @@ def parse_cli_args() -> CliArgs:
         n_ctx=ns.n_ctx,
         api_server_url=ns.api_server_url,
         api_timeout_sec=ns.api_timeout_sec,
+        chat_template=ns.chat_template,
     )
 
 
@@ -219,6 +236,11 @@ def to_app_config(args: CliArgs) -> AppConfig:
         profile.n_gpu_layers if args.gpu_profile != "none" else args.n_gpu_layers
     )
 
+    template = resolve_chat_template(
+        model_path=args.model_path,
+        template_arg=args.chat_template,
+    )
+
     return AppConfig(
         backend_mode=args.backend,
         model_path=args.model_path,
@@ -226,6 +248,8 @@ def to_app_config(args: CliArgs) -> AppConfig:
         n_ctx=n_ctx,
         api_server_url=args.api_server_url,
         api_timeout_sec=args.api_timeout_sec,
+        chat_template=template,
+        stop_tokens=default_stop_tokens(template),
     )
 
 

@@ -37,8 +37,8 @@ class VNDisplayRenderer:
         normalized = re.sub(r"([^\n])(竜胆[:：])", r"\1\n\2", normalized)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip("\n")
 
-        narrative_style = f"{Fore.YELLOW}{Style.DIM}"
-        dialogue_style = f"{Fore.LIGHTYELLOW_EX}{Style.NORMAL}"
+        narrative_style = f"{Fore.YELLOW}{Style.NORMAL}"
+        dialogue_style = f"{Fore.RED}{Style.NORMAL}"
 
         def is_dialogue_line(line: str) -> bool:
             stripped = (line or "").lstrip()

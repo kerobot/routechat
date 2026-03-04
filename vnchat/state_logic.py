@@ -13,6 +13,7 @@ from vnchat.character import CharacterProfile
 from vnchat.config import RuntimeTuning
 from vnchat.conversation import ConversationManager
 from vnchat.models import CharacterState, StateAnalysis
+from vnchat.prompt_format import ChatTemplateName, build_chat_prompt
 
 
 class CharacterStateUpdater:
@@ -48,6 +49,8 @@ class CharacterStateUpdater:
         tuning: RuntimeTuning,
         llm: Any,
         user_name: str,
+        chat_template: ChatTemplateName,
+        stop_tokens: tuple[str, ...],
     ) -> None:
         """状態更新器を初期化する。"""
         self.conversation = conversation
@@ -55,6 +58,8 @@ class CharacterStateUpdater:
         self.tuning = tuning
         self.llm = llm
         self.user_name = user_name
+        self.chat_template = chat_template
+        self.stop_tokens = stop_tokens
 
     def update_character_state(self, turn_count: int, user_input: str) -> None:
         """ユーザー入力に応じて状態を更新する（LLM分析 or 軽量更新）。"""
@@ -425,9 +430,10 @@ class CharacterStateUpdater:
             recent_dialogue=recent_dialogue,
         )
 
-        prompt = (
-            f"<|start_header_id|>system<|end_header_id|>\n\n{analyzer_prompt}<|eot_id|>"
-            f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+        prompt = build_chat_prompt(
+            messages=[{"role": "system", "content": analyzer_prompt}],
+            template=self.chat_template,
+            add_generation_prompt=True,
         )
 
         output = self.llm(
@@ -437,7 +443,7 @@ class CharacterStateUpdater:
             top_p=self.tuning.analyzer_top_p,
             top_k=self.tuning.analyzer_top_k,
             repeat_penalty=self.tuning.analyzer_repeat_penalty,
-            stop=["<|eot_id|>"],
+            stop=list(self.stop_tokens),
             stream=False,
         )
 
