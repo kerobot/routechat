@@ -165,6 +165,18 @@ class ConversationManager:
             f"シーン数: {self.character_state.scene_count}"
         )
 
+        anchors = self.get_recent_context_hints(
+            messages_override=messages_override,
+            max_messages=4,
+            max_keywords=8,
+        )
+        if anchors:
+            system_parts.append(
+                "\n\n## 直近会話アンカー\n"
+                + "\n".join(f"- {w}" for w in anchors)
+                + "\n上の要素を最低1つは自然に回収し、直前発話のオウム返しは避けること。"
+            )
+
         context: list[dict[str, str]] = [
             {"role": "system", "content": "".join(system_parts)}
         ]
@@ -175,6 +187,65 @@ class ConversationManager:
                 context.append({"role": msg.role, "content": msg.content})
 
         return context
+
+    def get_recent_context_hints(
+        self,
+        messages_override: list[Message] | None = None,
+        max_messages: int = 4,
+        max_keywords: int = 8,
+        include_assistant_fallback: bool = True,
+    ) -> list[str]:
+        """直近会話から回収すべき語を抽出する。"""
+        messages = messages_override if messages_override is not None else self.messages
+        user_recent = [m for m in messages if m.role == "user"][-max_messages:]
+        assistant_recent = [m for m in messages if m.role == "assistant"][
+            -max_messages:
+        ]
+
+        stop_words = {
+            "これ",
+            "それ",
+            "あれ",
+            "ここ",
+            "そこ",
+            "ため",
+            "よう",
+            "こと",
+            "感じ",
+            "です",
+            "ます",
+            "した",
+            "する",
+            "いる",
+            "ある",
+            "先輩",
+            "竜胆",
+        }
+        seen: set[str] = set()
+        hints: list[str] = []
+
+        def collect_from(msg_list: list[Message]) -> None:
+            for msg in reversed(msg_list):
+                text = (msg.content or "").strip().lower()
+                if not text:
+                    continue
+                words = re.findall(r"[ぁ-んァ-ン一-龥]{2,}|[a-z0-9_]{3,}", text)
+                for word in words:
+                    if word in stop_words or word in seen:
+                        continue
+                    seen.add(word)
+                    hints.append(word)
+                    if len(hints) >= max_keywords:
+                        return
+
+        collect_from(user_recent)
+        if hints:
+            return hints[:max_keywords]
+
+        if include_assistant_fallback:
+            collect_from(assistant_recent)
+
+        return hints[:max_keywords]
 
     def save_to_file(self, filename: str) -> None:
         """会話履歴・要約・状態をJSONとして保存する。"""

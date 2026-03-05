@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from difflib import SequenceMatcher
+
 from colorama import Fore, Style
 
 from vnchat.backends import LLMBackendAdapter
@@ -16,6 +19,15 @@ from vnchat.state_logic import CharacterStateUpdater
 
 class VisualNovelChat:
     """ビジュアルノベル風ロールプレイチャットの実行エンジン。"""
+
+    _REPETITIVE_PROP_WORDS = (
+        "マグカップ",
+        "コーヒー",
+        "資料",
+        "視線",
+        "目線",
+        "口元",
+    )
 
     def __init__(
         self,
@@ -173,20 +185,15 @@ class VisualNovelChat:
         )
 
         response = str(output.get("choices", [{}])[0].get("text", "")).strip()
+        response = self._postprocess_response(response)
+        base_score = self._response_quality_score(response)
 
-        if self._needs_novel_retry(response):
+        retry_reasons = self._collect_retry_reasons(response)
+        if retry_reasons:
             retry_system_prompt = (
                 self.system_prompt
                 + "\n\n"
-                + (
-                    "短すぎるので、ノベル風の描写量を少し増やして出力して。\n"
-                    "厳密な固定フォーマットは不要だが、\n"
-                    "- 情景や仕草の描写\n"
-                    "- 竜胆のセリフ\n"
-                    "- 会話後の空気や次の一手\n"
-                    "の3要素が自然に含まれるように。\n"
-                    "余計な前置きやメタ発言は禁止。"
-                )
+                + self._build_retry_instruction(retry_reasons)
             )
             retry_prompt = self._build_prompt_with_generation_budget(
                 reserve_tokens=self.tuning.reserve_tokens,
@@ -198,7 +205,11 @@ class VisualNovelChat:
                 temperature=self.tuning.generation_temperature,
                 top_p=self.tuning.generation_top_p,
                 top_k=self.tuning.generation_top_k,
-                repeat_penalty=self.tuning.generation_repeat_penalty,
+                repeat_penalty=min(
+                    1.35,
+                    self.tuning.generation_repeat_penalty
+                    + self.tuning.retry_repeat_penalty_boost,
+                ),
                 stop=list(self.app_config.stop_tokens),
                 stream=False,
             )
@@ -206,7 +217,10 @@ class VisualNovelChat:
                 retry_output.get("choices", [{}])[0].get("text", "")
             ).strip()
             if retry_text:
-                response = retry_text
+                retry_text = self._postprocess_response(retry_text)
+                retry_score = self._response_quality_score(retry_text)
+                if retry_score <= base_score:
+                    response = retry_text
 
         if not response:
             try:
@@ -236,6 +250,329 @@ class VisualNovelChat:
             return True
 
         return False
+
+    def _collect_retry_reasons(self, response: str) -> list[str]:
+        """再生成すべき理由を収集する。"""
+        reasons: list[str] = []
+        if self._needs_novel_retry(response):
+            reasons.append("short")
+        if self._is_parrot_like_response(response):
+            reasons.append("parrot")
+        if self._is_user_quote_repetition(response):
+            reasons.append("user_quote")
+        if self._is_self_repetitive_response(response):
+            reasons.append("self_repeat")
+        if self._is_repetitive_prop_response(response):
+            reasons.append("prop_repeat")
+        if self._is_context_mismatch_response(response):
+            reasons.append("context")
+        if self._is_fragmented_response(response):
+            reasons.append("broken")
+        if self._has_unwanted_marker(response):
+            reasons.append("marker")
+        if self._contains_wrong_character_name(response):
+            reasons.append("name_error")
+        if self._is_scene_replay_response(response):
+            reasons.append("scene_replay")
+        return reasons
+
+    def _build_retry_instruction(self, reasons: list[str]) -> str:
+        """再生成時の追加入力を組み立てる。"""
+        lines: list[str] = []
+
+        if "short" in reasons:
+            lines.extend(
+                [
+                    "短すぎるので、ノベル風の描写量を少し増やして出力して。",
+                    "厳密な固定フォーマットは不要だが、",
+                    "- 情景や仕草の描写",
+                    "- 竜胆のセリフ",
+                    "- 会話後の空気や次の一手",
+                    "の3要素が自然に含まれるように。",
+                ]
+            )
+
+        if "parrot" in reasons:
+            lines.append(
+                "直前のユーザー発話の言い換え・反復は避け、新しい情報を1つ以上含めること。"
+            )
+
+        if "user_quote" in reasons:
+            lines.append(
+                "ユーザー発話を引用・復唱しないで、要点を咀嚼して先輩としての返答を行うこと。"
+            )
+
+        if "self_repeat" in reasons:
+            lines.append(
+                "前ターンの竜胆の言い回しを繰り返さず、動作描写・語彙・展開を変えること。"
+            )
+
+        if "prop_repeat" in reasons:
+            lines.append(
+                "同じ小道具や同一所作の連続使用を避け、場面の変化を入れること。"
+            )
+
+        if "context" in reasons:
+            lines.append(
+                "直近会話アンカーから最低1つを具体的に回収して応答に織り込むこと。"
+            )
+
+        if "broken" in reasons:
+            lines.append("意味が崩れた断片文を避け、文として自然に完結させること。")
+
+        if "marker" in reasons:
+            lines.append(
+                "「（次）」「次は？」「地の文」「次のアクション」のようなメタ的ラベルは出力しないこと。"
+            )
+
+        if "name_error" in reasons:
+            lines.append(
+                "キャラクター名は必ず『竜胆』を使い、誤字・類似表記（例: 竜齢）は禁止。"
+            )
+
+        if "scene_replay" in reasons:
+            lines.append(
+                "オープニングや既出の長文描写を再掲せず、現在ターンの会話を前に進めること。"
+            )
+
+        lines.append("余計な前置きやメタ発言は禁止。")
+        return "\n".join(lines)
+
+    def _is_parrot_like_response(self, response: str) -> bool:
+        """応答がオウム返し傾向かを判定する。"""
+        last_user = ""
+        for msg in reversed(self.conversation.messages):
+            if msg.role == "user":
+                last_user = (msg.content or "").strip()
+                break
+
+        if not last_user or not response:
+            return False
+
+        left = self._normalize_for_similarity(last_user)
+        right = self._normalize_for_similarity(response)
+        if not left or not right:
+            return False
+
+        similarity = SequenceMatcher(None, left, right).ratio()
+        return similarity >= self.tuning.echo_similarity_threshold
+
+    def _is_self_repetitive_response(self, response: str) -> bool:
+        """直前のassistant応答と似すぎていないかを判定する。"""
+        last_assistant = ""
+        for msg in reversed(self.conversation.messages):
+            if msg.role == "assistant":
+                last_assistant = (msg.content or "").strip()
+                break
+
+        if not last_assistant or not response:
+            return False
+
+        left = self._normalize_for_similarity(last_assistant)
+        right = self._normalize_for_similarity(response)
+        if not left or not right:
+            return False
+
+        similarity = SequenceMatcher(None, left, right).ratio()
+        return similarity >= self.tuning.echo_similarity_threshold
+
+    def _is_user_quote_repetition(self, response: str) -> bool:
+        """ユーザー発話の丸写し・半引用が含まれるか判定する。"""
+        last_user = ""
+        for msg in reversed(self.conversation.messages):
+            if msg.role == "user":
+                last_user = (msg.content or "").strip()
+                break
+
+        if not last_user or not response:
+            return False
+
+        normalized_user = self._normalize_for_similarity(last_user)
+        normalized_resp = self._normalize_for_similarity(response)
+        if len(normalized_user) >= 8 and normalized_user in normalized_resp:
+            return True
+
+        quoted_texts = re.findall(r"[「\"]([^」\"]{6,})[」\"]", response)
+        for quoted in quoted_texts:
+            q = self._normalize_for_similarity(quoted)
+            if not q:
+                continue
+            similarity = SequenceMatcher(None, normalized_user, q).ratio()
+            if similarity >= 0.78:
+                return True
+
+        return False
+
+    def _is_repetitive_prop_response(self, response: str) -> bool:
+        """同一小道具の連続使用を簡易検知する。"""
+        if not response:
+            return False
+
+        last_assistant = ""
+        for msg in reversed(self.conversation.messages):
+            if msg.role == "assistant":
+                last_assistant = msg.content or ""
+                break
+        if not last_assistant:
+            return False
+
+        current_hits = {w for w in self._REPETITIVE_PROP_WORDS if w in (response or "")}
+        previous_hits = {
+            w for w in self._REPETITIVE_PROP_WORDS if w in (last_assistant or "")
+        }
+        return len(current_hits & previous_hits) > 0
+
+    def _is_context_mismatch_response(self, response: str) -> bool:
+        """直近文脈を回収できているかを判定する。"""
+        anchors = self.conversation.get_recent_context_hints(
+            max_messages=4,
+            max_keywords=8,
+            include_assistant_fallback=False,
+        )
+        if not anchors:
+            return False
+
+        normalized = (response or "").lower()
+        hits = sum(1 for word in anchors if word in normalized)
+        return hits < self.tuning.context_keyword_min_hits
+
+    def _is_scene_replay_response(self, response: str) -> bool:
+        """オープニングや直前の長文を再掲していないかを判定する。"""
+        if not response:
+            return False
+
+        left = self._normalize_for_similarity(self.opening_scene)
+        right = self._normalize_for_similarity(response)
+        if not left or not right:
+            return False
+
+        if len(right) > 80 and right[:80] == left[:80]:
+            return True
+
+        similarity = SequenceMatcher(None, left, right).ratio()
+        return similarity >= 0.82
+
+    @staticmethod
+    def _has_unwanted_marker(response: str) -> bool:
+        """メタ的な継続マーカー混入を検知する。"""
+        if not response:
+            return False
+        markers = (
+            "（次）",
+            "(次)",
+            "次は？",
+            "（続く）",
+            "(続く)",
+            "次のアクション",
+            "next action",
+            "地の文",
+            "地の文には",
+            "地の文では",
+        )
+        return any(marker in response for marker in markers)
+
+    @staticmethod
+    def _contains_wrong_character_name(response: str) -> bool:
+        """竜胆の誤記を検知する。"""
+        if not response:
+            return False
+        wrong_forms = ("竜齢", "龍齢", "竜令", "竜齋")
+        return any(name in response for name in wrong_forms)
+
+    def _postprocess_response(self, response: str) -> str:
+        """表示前にメタ行除去・誤記補正を行う。"""
+        if not response:
+            return ""
+
+        fixed = response
+        typo_map = {
+            "竜齢": "竜胆",
+            "龍齢": "竜胆",
+            "竜令": "竜胆",
+            "竜齋": "竜胆",
+        }
+        for wrong, correct in typo_map.items():
+            fixed = fixed.replace(wrong, correct)
+
+        cleaned_lines: list[str] = []
+        for raw_line in fixed.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            line = raw_line.strip()
+            if not line:
+                continue
+            lowered = line.lower()
+            if line.startswith("次のアクション") or lowered.startswith("next action"):
+                continue
+            if line.startswith("地の文"):
+                continue
+            if line in ("（次）", "(次)", "（続く）", "(続く)"):
+                continue
+            if (line.startswith("（") and line.endswith("）")) or (
+                line.startswith("(") and line.endswith(")")
+            ):
+                # メタ的な括弧行は出力から除去（短い説明行が多いため）
+                if len(line) <= 40 or "視線" in line or "操作" in line:
+                    continue
+            cleaned_lines.append(line)
+
+        return "\n".join(cleaned_lines).strip()
+
+    def _response_quality_score(self, response: str) -> int:
+        """応答品質をざっくり数値化（低いほど良い）。"""
+        reasons = self._collect_retry_reasons(response)
+        weights = {
+            "short": 2,
+            "parrot": 2,
+            "user_quote": 2,
+            "self_repeat": 2,
+            "prop_repeat": 1,
+            "context": 1,
+            "broken": 2,
+            "marker": 2,
+            "name_error": 3,
+            "scene_replay": 3,
+        }
+        return sum(weights.get(reason, 1) for reason in reasons)
+
+    @staticmethod
+    def _is_fragmented_response(response: str) -> bool:
+        """不自然な断片文・機械的な重複を簡易検知する。"""
+        if not response:
+            return True
+
+        normalized = response.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            return True
+
+        bad_patterns = (
+            "内心は",
+            "間違ってないけど",
+            "けど",
+        )
+        if (
+            any(pattern in normalized for pattern in bad_patterns)
+            and len(normalized) < 60
+        ):
+            return True
+
+        lines = [line.strip() for line in normalized.split("\n") if line.strip()]
+        if len(lines) >= 2:
+            for i in range(len(lines) - 1):
+                a = VisualNovelChat._normalize_for_similarity(lines[i])
+                b = VisualNovelChat._normalize_for_similarity(lines[i + 1])
+                if a and b and a == b:
+                    return True
+
+        return False
+
+    @staticmethod
+    def _normalize_for_similarity(text: str) -> str:
+        """文字列類似度比較向けに正規化する。"""
+        normalized = (text or "").lower()
+        normalized = re.sub(r"\s+", "", normalized)
+        normalized = re.sub(
+            r"[。、，,.!！?？『』「」\"'（）()【】\[\]…ー-]", "", normalized
+        )
+        return normalized
 
     def _print_vn_display(self, text: str) -> None:
         """表示レンダラに委譲してノベル風表示を行う。"""
@@ -275,10 +612,22 @@ class VisualNovelChat:
         # 条件: keepを増やすほどトークン数は基本的に増える（単調性を仮定）。
         # なので mid が収まるなら右側(より多く残す)を探索し、
         # 収まらないなら左側(さらに削る)を探索する。
+        min_keep = max(
+            0, min(self.tuning.min_recent_messages_to_keep, len(all_messages))
+        )
         lo = 0
         hi = len(all_messages)
         # 最低限のフォールバック（履歴0件）を初期解として持っておく。
         best_prompt = build_with_keep(0)
+
+        min_candidate = build_with_keep(min_keep)
+        try:
+            min_tokens = len(self.llm.tokenize(min_candidate.encode("utf-8")))
+            if min_tokens <= (self.llm.n_ctx() - reserve_tokens):
+                lo = min_keep
+                best_prompt = min_candidate
+        except Exception:
+            pass
 
         while lo <= hi:
             mid = (lo + hi) // 2

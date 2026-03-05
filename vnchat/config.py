@@ -43,6 +43,10 @@ class RuntimeTuning:
     generation_top_p: float = 0.9
     generation_top_k: int = 40
     generation_repeat_penalty: float = 1.1
+    retry_repeat_penalty_boost: float = 0.12
+    min_recent_messages_to_keep: int = 4
+    echo_similarity_threshold: float = 0.68
+    context_keyword_min_hits: int = 1
 
     analyzer_max_tokens: int = 120
     analyzer_temperature: float = 0.2
