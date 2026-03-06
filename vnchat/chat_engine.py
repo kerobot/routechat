@@ -28,6 +28,17 @@ class VisualNovelChat:
         "目線",
         "口元",
     )
+    _STYLE_TEMPLATE_MARKERS = (
+        "低いトーンで",
+        "小さく呟き",
+        "口元には",
+        "視線を",
+        "微かに笑み",
+    )
+    _UNLIKELY_ACTION_MARKERS = (
+        "一気飲み",
+        "自身が口元に持っていった",
+    )
 
     def __init__(
         self,
@@ -266,12 +277,16 @@ class VisualNovelChat:
             reasons.append("prop_repeat")
         if self._is_context_mismatch_response(response):
             reasons.append("context")
+        if self._is_template_like_response(response):
+            reasons.append("style_template")
         if self._is_fragmented_response(response):
             reasons.append("broken")
         if self._has_unwanted_marker(response):
             reasons.append("marker")
         if self._contains_wrong_character_name(response):
             reasons.append("name_error")
+        if self._contains_unlikely_action(response):
+            reasons.append("unlikely_action")
         if self._is_scene_replay_response(response):
             reasons.append("scene_replay")
         return reasons
@@ -317,6 +332,11 @@ class VisualNovelChat:
                 "直近会話アンカーから最低1つを具体的に回収して応答に織り込むこと。"
             )
 
+        if "style_template" in reasons:
+            lines.append(
+                "直近2ターンと同じ文型テンプレートを繰り返さず、文の運びと描写の軸を変えること。"
+            )
+
         if "broken" in reasons:
             lines.append("意味が崩れた断片文を避け、文として自然に完結させること。")
 
@@ -333,6 +353,11 @@ class VisualNovelChat:
         if "scene_replay" in reasons:
             lines.append(
                 "オープニングや既出の長文描写を再掲せず、現在ターンの会話を前に進めること。"
+            )
+
+        if "unlikely_action" in reasons:
+            lines.append(
+                "キャラ設定に合わない過剰行動（例: 一気飲み）を避け、自然な所作に留めること。"
             )
 
         lines.append("余計な前置きやメタ発言は禁止。")
@@ -356,6 +381,31 @@ class VisualNovelChat:
 
         similarity = SequenceMatcher(None, left, right).ratio()
         return similarity >= self.tuning.echo_similarity_threshold
+
+    def _is_template_like_response(self, response: str) -> bool:
+        """直近と同じ描写テンプレートが連投されていないかを判定する。"""
+        if not response:
+            return False
+
+        current_markers = {
+            m for m in self._STYLE_TEMPLATE_MARKERS if m in (response or "")
+        }
+        if len(current_markers) < 2:
+            return False
+
+        recent_assistant = [
+            (msg.content or "")
+            for msg in self.conversation.messages
+            if msg.role == "assistant"
+        ][-2:]
+
+        overlap_count = 0
+        for text in recent_assistant:
+            prior_markers = {m for m in self._STYLE_TEMPLATE_MARKERS if m in text}
+            if len(current_markers & prior_markers) >= 2:
+                overlap_count += 1
+
+        return overlap_count >= 1
 
     def _is_self_repetitive_response(self, response: str) -> bool:
         """直前のassistant応答と似すぎていないかを判定する。"""
@@ -476,8 +526,14 @@ class VisualNovelChat:
         """竜胆の誤記を検知する。"""
         if not response:
             return False
-        wrong_forms = ("竜齢", "龍齢", "竜令", "竜齋")
+        wrong_forms = ("竜齢", "龍齢", "竜令", "竜齋", "竜淡")
         return any(name in response for name in wrong_forms)
+
+    def _contains_unlikely_action(self, response: str) -> bool:
+        """キャラ設定から外れた不自然な行動語を検知する。"""
+        if not response:
+            return False
+        return any(marker in response for marker in self._UNLIKELY_ACTION_MARKERS)
 
     def _postprocess_response(self, response: str) -> str:
         """表示前にメタ行除去・誤記補正を行う。"""
@@ -490,6 +546,7 @@ class VisualNovelChat:
             "龍齢": "竜胆",
             "竜令": "竜胆",
             "竜齋": "竜胆",
+            "竜淡": "竜胆",
         }
         for wrong, correct in typo_map.items():
             fixed = fixed.replace(wrong, correct)
@@ -498,6 +555,8 @@ class VisualNovelChat:
         for raw_line in fixed.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             line = raw_line.strip()
             if not line:
+                continue
+            if any(marker in line for marker in self._UNLIKELY_ACTION_MARKERS):
                 continue
             lowered = line.lower()
             if line.startswith("次のアクション") or lowered.startswith("next action"):
@@ -526,9 +585,11 @@ class VisualNovelChat:
             "self_repeat": 2,
             "prop_repeat": 1,
             "context": 1,
+            "style_template": 2,
             "broken": 2,
             "marker": 2,
             "name_error": 3,
+            "unlikely_action": 2,
             "scene_replay": 3,
         }
         return sum(weights.get(reason, 1) for reason in reasons)
