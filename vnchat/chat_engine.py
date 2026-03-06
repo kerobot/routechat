@@ -39,6 +39,29 @@ class VisualNovelChat:
         "一気飲み",
         "自身が口元に持っていった",
     )
+    # 疑問符なしで会話継続を促すソフトフックワード群
+    _SOFT_HOOK_PHRASES = (
+        "どう思う",
+        "どうする",
+        "どうかな",
+        "どうした",
+        "どうだった",
+        "何かある",
+        "何か言",
+        "してみたら",
+        "してみて",
+        "言ってみて",
+        "話してみて",
+        "聞かせて",
+        "来てみたら",
+        "来てみて",
+        "気になる",
+        "してほしい",
+        "してみよう",
+        "しようか",
+        "伝えて",
+        "教えて",
+    )
 
     def __init__(
         self,
@@ -289,6 +312,8 @@ class VisualNovelChat:
             reasons.append("unlikely_action")
         if self._is_scene_replay_response(response):
             reasons.append("scene_replay")
+        if self._is_no_hook_response(response):
+            reasons.append("no_hook")
         return reasons
 
     def _build_retry_instruction(self, reasons: list[str]) -> str:
@@ -358,6 +383,13 @@ class VisualNovelChat:
         if "unlikely_action" in reasons:
             lines.append(
                 "キャラ設定に合わない過剰行動（例: 一気飲み）を避け、自然な所作に留めること。"
+            )
+
+        if "no_hook" in reasons:
+            lines.append(
+                "応答の末尾に、会話を続けるための小さなフックを必ず1つ加えること。\n"
+                "フックの種類は「軽い問いかけ」「提案」「さりげない確認」のどれかでよい。\n"
+                "二択の問いかけ（「AかBか」形式）は多用せず、ときどきにすること。"
             )
 
         lines.append("余計な前置きやメタ発言は禁止。")
@@ -502,6 +534,30 @@ class VisualNovelChat:
         similarity = SequenceMatcher(None, left, right).ratio()
         return similarity >= 0.82
 
+    def _is_no_hook_response(self, response: str) -> bool:
+        """会話フック（問いかけ・誘い）がない閉じた応答を検知する。
+
+        疑問符もソフトフックワードも含まない応答は、ターンを自然に渡せていない
+        可能性が高いため再生成候補とする。
+        超短応答（"short" で処理済み）は対象外。
+        """
+        if not response:
+            return False
+
+        # _needs_novel_retry() が True になる超短応答は "short" retry で対処済みなのでスキップ
+        if self._needs_novel_retry(response):
+            return False
+
+        # 疑問符があればフックあり
+        if "?" in response or "？" in response:
+            return False
+
+        # ソフトフックワードがあればフックあり
+        if any(w in response for w in self._SOFT_HOOK_PHRASES):
+            return False
+
+        return True
+
     @staticmethod
     def _has_unwanted_marker(response: str) -> bool:
         """メタ的な継続マーカー混入を検知する。"""
@@ -591,6 +647,7 @@ class VisualNovelChat:
             "name_error": 3,
             "unlikely_action": 2,
             "scene_replay": 3,
+            "no_hook": 1,
         }
         return sum(weights.get(reason, 1) for reason in reasons)
 
