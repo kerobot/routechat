@@ -25,6 +25,8 @@ class ConversationManager:
     コンテキスト内に収まるように古い履歴を圧縮する。
     """
 
+    _MAX_HOOK_HISTORY = 3
+
     def __init__(
         self,
         user_name: str,
@@ -36,6 +38,7 @@ class ConversationManager:
         """会話マネージャを初期化する。"""
         self.messages: list[Message] = []
         self.summary_history: list[str] = []
+        self.hook_history: list[str] = []
         self.character_state = CharacterState()
         self.user_name = user_name
         self.llm = llm
@@ -52,6 +55,15 @@ class ConversationManager:
 
         if role == "assistant" and len(self.messages) > self.tuning.summary_threshold:
             self._trigger_summary()
+
+    def add_hook(self, hook: str) -> None:
+        """内部フックを履歴に追加する（最大_MAX_HOOK_HISTORY件保持）。"""
+        hook = hook.strip()
+        if not hook:
+            return
+        self.hook_history.append(hook)
+        while len(self.hook_history) > self._MAX_HOOK_HISTORY:
+            self.hook_history.pop(0)
 
     def _trigger_summary(self) -> None:
         """閾値を超えた会話履歴を要約し、履歴を圧縮する。"""
@@ -177,11 +189,18 @@ class ConversationManager:
                 + "\n上の要素を最低1つは自然に回収し、直前発話のオウム返しは避けること。"
             )
 
+        if self.hook_history:
+            system_parts.append(
+                "\n\n## 直近の内部フック（ユーザーには見せない）\n"
+                + "\n".join(f"- {h}" for h in self.hook_history)
+                + "\n上のフックを参考に、今回の応答で自然に話題を進めること。"
+            )
+
         system_parts.append(
             "\n\n## 会話継続ルール\n"
             "- 塩気（クール・素っ気なさ）は維持してよい。\n"
-            "- 各ターンの末尾に、会話を続けるための小さなフックを必ず1つ加えること。\n"
-            "  フックの種類: 軽い問いかけ・提案・さりげない確認のいずれか。\n"
+            "- 応答の末尾で会話が自然に続くよう、問いかけ・提案・確認のどれかをセリフや地の文に自然に織り込むこと。\n"
+            "  （「フック：」「hook:」などのラベルは出力しない）\n"
             "- 二択の問いかけ（「AかBか」形式）は使いすぎない。ときどきでよい。\n"
             "- 承認・了解・感謝のみで会話を締めることは避けること。\n"
         )
@@ -261,6 +280,7 @@ class ConversationManager:
         data = {
             "messages": [asdict(m) for m in self.messages],
             "summary_history": self.summary_history,
+            "hook_history": self.hook_history,
             "character_state": asdict(self.character_state),
         }
         with open(filename, "w", encoding="utf-8") as f:

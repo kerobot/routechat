@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from difflib import SequenceMatcher
 
@@ -19,6 +20,24 @@ from vnchat.state_logic import CharacterStateUpdater
 
 class VisualNovelChat:
     """ビジュアルノベル風ロールプレイチャットの実行エンジン。"""
+
+    # 構造化出力：LLMに要求するJSONスキーマの指示
+    _STRUCTURED_JSON_INSTRUCTION = (
+        "\n\n## 出力形式（必須・厳守）\n"
+        "次のJSON形式のみで出力すること。コードブロック・前置き・説明・余分な改行は禁止。\n"
+        '{"reply": "VN風のセリフと描写のテキスト", '
+        '"hook": "次ターン向け内部フック（ユーザーには表示しない）"}'
+    )
+    # 構造化出力リトライ時の追加指示
+    _STRUCTURED_JSON_RETRY_INSTRUCTION = (
+        "\n有効なJSONのみを出力すること。コードブロック・前置き・説明は禁止。"
+    )
+    # フック行として除去するプレフィックス（小文字比較用含む）
+    _HOOK_LABEL_PREFIXES = ("フック:", "フック：")
+    _HOOK_LABEL_PREFIXES_LOWER = ("hook:",)
+
+    # 構造化出力のリトライ上限
+    _MAX_STRUCTURED_RETRIES = 3
 
     _REPETITIVE_PROP_WORDS = (
         "マグカップ",
@@ -202,72 +221,109 @@ class VisualNovelChat:
 
     def _generate_response(self) -> str:
         """プロンプトを構築してLLMから応答を生成する。"""
-        prompt = self._build_prompt_with_generation_budget(
-            reserve_tokens=self.tuning.reserve_tokens
-        )
+        reply, hook = self._generate_structured_response()
 
-        print(f"{Fore.CYAN}[竜胆が考えています...]{Style.RESET_ALL}")
-        output = self.llm(
-            prompt,
-            max_tokens=self.tuning.generation_max_tokens,
-            temperature=self.tuning.generation_temperature,
-            top_p=self.tuning.generation_top_p,
-            top_k=self.tuning.generation_top_k,
-            repeat_penalty=self.tuning.generation_repeat_penalty,
-            stop=list(self.app_config.stop_tokens),
-            stream=False,
-        )
-
-        response = str(output.get("choices", [{}])[0].get("text", "")).strip()
-        response = self._postprocess_response(response)
-        base_score = self._response_quality_score(response)
-
-        retry_reasons = self._collect_retry_reasons(response)
+        base_score = self._response_quality_score(reply)
+        retry_reasons = self._collect_retry_reasons(reply)
         if retry_reasons:
             retry_system_prompt = (
                 self.system_prompt
                 + "\n\n"
                 + self._build_retry_instruction(retry_reasons)
             )
-            retry_prompt = self._build_prompt_with_generation_budget(
-                reserve_tokens=self.tuning.reserve_tokens,
-                system_prompt_override=retry_system_prompt,
+            retry_reply, retry_hook = self._generate_structured_response(
+                system_prompt_override=retry_system_prompt
             )
-            retry_output = self.llm(
-                retry_prompt,
+            if retry_reply:
+                retry_score = self._response_quality_score(retry_reply)
+                if retry_score <= base_score:
+                    reply = retry_reply
+                    hook = retry_hook
+
+        # フックは最終的に採用した応答のものだけを保存する
+        if hook:
+            self.conversation.add_hook(hook)
+
+        if not reply:
+            print(
+                f"{Fore.YELLOW}[システム] 空の応答でした。{Style.RESET_ALL}"
+            )
+
+        return reply
+
+    def _generate_structured_response(
+        self, system_prompt_override: str | None = None
+    ) -> tuple[str, str]:
+        """JSON形式でreplyとhookを生成する。解析失敗時は最大3回リトライ後フォールバック。
+
+        Returns:
+            (reply, hook): replyはpostprocess済みの表示テキスト、hookは内部フック文字列。
+        """
+        base_system = system_prompt_override or self.system_prompt
+        last_raw = ""
+
+        for attempt in range(self._MAX_STRUCTURED_RETRIES):
+            retry_suffix = (
+                self._STRUCTURED_JSON_RETRY_INSTRUCTION if attempt > 0 else ""
+            )
+            structured_system = (
+                base_system + self._STRUCTURED_JSON_INSTRUCTION + retry_suffix
+            )
+
+            prompt = self._build_prompt_with_generation_budget(
+                reserve_tokens=self.tuning.reserve_tokens,
+                system_prompt_override=structured_system,
+            )
+
+            print(f"{Fore.CYAN}[竜胆が考えています...]{Style.RESET_ALL}")
+            output = self.llm(
+                prompt,
                 max_tokens=self.tuning.generation_max_tokens,
                 temperature=self.tuning.generation_temperature,
                 top_p=self.tuning.generation_top_p,
                 top_k=self.tuning.generation_top_k,
-                repeat_penalty=min(
-                    1.35,
-                    self.tuning.generation_repeat_penalty
-                    + self.tuning.retry_repeat_penalty_boost,
-                ),
+                repeat_penalty=self.tuning.generation_repeat_penalty,
                 stop=list(self.app_config.stop_tokens),
                 stream=False,
             )
-            retry_text = str(
-                retry_output.get("choices", [{}])[0].get("text", "")
+
+            last_raw = str(
+                output.get("choices", [{}])[0].get("text", "")
             ).strip()
-            if retry_text:
-                retry_text = self._postprocess_response(retry_text)
-                retry_score = self._response_quality_score(retry_text)
-                if retry_score <= base_score:
-                    response = retry_text
 
-        if not response:
+            raw = self._strip_code_fences(last_raw)
+
             try:
-                prompt_tokens = len(self.llm.tokenize(prompt.encode("utf-8")))
-            except Exception:
-                prompt_tokens = -1
-            finish_reason = output.get("choices", [{}])[0].get("finish_reason")
-            print(
-                f"{Fore.YELLOW}[システム] 空の応答でした。"
-                f"prompt_tokens={prompt_tokens}, finish_reason={finish_reason}{Style.RESET_ALL}"
-            )
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    reply = self._postprocess_response(
+                        str(parsed.get("reply", "")).strip()
+                    )
+                    hook = str(parsed.get("hook", "")).strip()
+                    if reply:
+                        return reply, hook
+            except (json.JSONDecodeError, ValueError):
+                print(
+                    f"{Fore.YELLOW}[システム] JSON解析失敗 "
+                    f"(試行{attempt + 1}/{self._MAX_STRUCTURED_RETRIES})"
+                    f"{Style.RESET_ALL}"
+                )
 
-        return response
+        # 全リトライ失敗：プレーンテキストとしてフォールバック
+        print(
+            f"{Fore.YELLOW}[システム] 構造化出力に失敗。"
+            f"プレーンテキストにフォールバック。{Style.RESET_ALL}"
+        )
+        return self._postprocess_response(last_raw), ""
+
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        """コードフェンス（```）を除去して中身を返す。"""
+        if not text.startswith("```"):
+            return text
+        text = re.sub(r"^```[^\n]*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        return text.strip()
 
     def _needs_novel_retry(self, text: str) -> bool:
         """応答が短すぎる等の場合に再生成すべきか判定する。"""
@@ -618,6 +674,10 @@ class VisualNovelChat:
             if line.startswith("次のアクション") or lowered.startswith("next action"):
                 continue
             if line.startswith("地の文"):
+                continue
+            if any(line.startswith(p) for p in self._HOOK_LABEL_PREFIXES):
+                continue
+            if any(line.lower().startswith(p) for p in self._HOOK_LABEL_PREFIXES_LOWER):
                 continue
             if line in ("（次）", "(次)", "（続く）", "(続く)"):
                 continue
